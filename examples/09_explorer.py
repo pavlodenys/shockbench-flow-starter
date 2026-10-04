@@ -1,7 +1,7 @@
 """An interactive explorer of dev episodes: one HTML file to click through the network week by week.
 
-    uv run python examples/08_explorer.py
-    uv run python examples/08_explorer.py --agents=template,heuristic,mine --episodes=29,5 --quick
+    uv run python examples/09_explorer.py
+    uv run python examples/09_explorer.py --agents=template,heuristic,mine --episodes=29,5 --quick
 
 Plays each agent on each episode, then writes explorer.html: the map of the network, what the agent observes
 each week (named in plain words, with the field's code beside it), what it does, and what it costs. Open the file in a
@@ -440,9 +440,9 @@ def main(
         n_jobs: workers of the naive rule's first computation (-1: all cores).
         regime: the information regime; standard is the scored one.
         seed: the reset's seed.
-        out: the run folder (default: outputs/08_explorer/<date_time>).
+        out: the run folder (default: outputs/09_explorer/<date_time>).
     """
-    out = Path(out or f"outputs/08_explorer/{time.strftime('%Y-%m-%d_%H-%M-%S')}")
+    out = Path(out or f"outputs/09_explorer/{time.strftime('%Y-%m-%d_%H-%M-%S')}")
     out.mkdir(parents=True, exist_ok=True)
     env = gym.make(env_id(task), regime=regime)
     names = [a.strip() for a in agents.split(",") if a.strip()]

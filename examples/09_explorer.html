@@ -1,4 +1,4 @@
-r<title>Провідник ShockBench-Flow</title>
+<title>Провідник ShockBench-Flow</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -267,6 +267,22 @@ tr.bad td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
 .foot { color: var(--ink3); font-size: 12px; margin-top: 18px; }
 @media (max-width: 560px) { .brand { flex-basis: 100%; } .wk { min-width: 0; } }
 @media (prefers-reduced-motion: no-preference) { .bar i { transition: width 0.2s; } }
+
+/* problems: map badges, timeline strips, diagnosis cards */
+.pgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 12px; }
+.prob { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--surface); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.prob header { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; justify-content: space-between; }
+.prob header b { font-size: 14px; }
+.prob ul { margin: 0; padding-left: 18px; }
+.prob li { margin: 2px 0; overflow-wrap: anywhere; }
+.prob .lbl { margin-top: 4px; }
+.prob.ok { background: var(--ok-soft); border-color: transparent; }
+.prob p { margin: 0; overflow-wrap: anywhere; }
+.badge rect { fill: var(--surface); stroke-width: 1.6; }
+.badge text { font-family: var(--font); font-size: 11px; font-weight: 600; fill: var(--ink); }
+.tl-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--ink2); padding-top: 4px; }
+.tl-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.tl-legend i { width: 14px; height: 8px; border-radius: 2px; display: inline-block; }
 </style>
 
 <div class="wrap">
@@ -288,6 +304,7 @@ tr.bad td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
     </div>
   </div>
   <div class="timeline" id="timeline"></div>
+  <div class="tl-legend" id="tlLegend"></div>
 
   <div class="grid">
     <section class="card" aria-label="Карта мережі">
@@ -310,10 +327,16 @@ tr.bad td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
         <span><i style="border-color:var(--bad);border-top-style:dashed"></i>заборонено або закрито</span>
         <span><i style="border-color:var(--ink3);border-top-style:dotted"></i>зв'язок енергомережі з фабрикою</span>
         <span>Товщина лінії: скільки агент реально відправив відносно норми.</span>
+        <span><b>Значки:</b> фіолетовий означає затор біля протоки, помаранчевий брак енергії, рожевий втрачений попит. Вони описують те, що агент бачить на початку тижня.</span>
       </div>
     </section>
     <aside class="card insp" aria-label="Деталі"><div class="body" id="insp"></div></aside>
   </div>
+
+  <section class="card" id="diagCard" style="margin-top:16px" aria-label="Що пішло не так">
+    <header><h2 id="diagTitle"></h2><span class="sm" style="max-width:70ch">Підсумок тижня після рішення агента. Підказки обчислено за простими правилами з даних цього тижня: вони пояснюють, куди дивитись, але не гарантують виграш.</span></header>
+    <div class="body" id="diag"></div>
+  </section>
 
   <section class="card tabs-card" aria-label="Тиждень крок за кроком">
     <div class="tabs" role="tablist" id="tabs"></div>
@@ -428,6 +451,119 @@ function spark(vals, o = {}) {
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" style="max-width:${W}px"><path d="${d}" fill="none" stroke="${o.color || "var(--accent)"}" stroke-width="1.8" stroke-linejoin="round"/>${cur}</svg>`;
 }
 
+/* problems found in the data: congestion at the strait, power shortage, unserved demand, agent mistakes */
+const CI = Object.fromEntries(N.costs.map((c, i) => [c.id, i]));
+const PCOL = { cong: "var(--c4)", energy: "var(--c7)", short: "var(--c5)", mistake: "var(--ink2)" };
+const PNAME = { cong: "Затор біля протоки", energy: "Брак енергії", short: "Дефіцит на ринку", mistake: "Помилки агента" };
+const PORDER = ["cong", "energy", "short", "mistake"];
+const PM = new WeakMap();
+function slotOpen(a, w, sl) {
+  let m = 1;
+  sl.laneEdges.forEach((e) => [edge(e).tail, edge(e).head].forEach((n) => { const o = chkOpen(a, w, n); if (o != null) m = Math.min(m, o); }));
+  return m;
+}
+function mistakes(a, w) {
+  const forb = [], closed = [], clip = [];
+  N.slots.forEach((sl, i) => {
+    const req = a.flows[w][i] || 0, ex = a.exec[w][i] || 0, ok = a.mask[w][i] === 1, open = slotOpen(a, w, sl);
+    if (!ok && req > 1e-6) forb.push({ i, req });
+    else if (req - ex > Math.max(1e-6, 0.1 * req)) clip.push({ i, req, ex });
+    if (ex > 0.2 * (sl.u0 || 1) && open < 0.2) closed.push({ i, ex, open });
+  });
+  return { forb, closed, clip, n: forb.length + closed.length + clip.length };
+}
+function problemSeries(a) {
+  if (PM.has(a)) return PM.get(a);
+  const q = [], en = [], sh = [], mi = [];
+  for (let w = 0; w < T; w++) {
+    q.push(sum(a.queue[w].map((r) => r[3])));
+    en.push(sum(a.shed[w]));
+    sh.push(a.lost[w][0] || 0);
+    mi.push(mistakes(a, w).n);
+  }
+  const norm = (v, thr) => { const m = Math.max(...v, 1e-9); return v.map((x) => (x / m >= thr ? Math.max(0.25, x / m) : 0)); };
+  const r = { cong: norm(q, 0.03), energy: norm(en, 0.03), short: norm(sh, 0.03), mistake: mi.map((n) => (n ? Math.min(1, 0.4 + n * 0.2) : 0)) };
+  PM.set(a, r);
+  return r;
+}
+function slotState(a, w, i) {
+  const sl = N.slots[i], cap = slotCap(a, w, sl), ex = a.exec[w][i] || 0, bits = [];
+  if (a.mask[w][i] !== 1) bits.push("заборонено");
+  const o = slotOpen(a, w, sl);
+  if (o < 0.2) bits.push(`протока відкрита на ${pct(o, 1)}`);
+  return `«${sl.label}»: запит ${num(a.flows[w][i])}, відправлено ${num(ex)}${cap != null ? ` з потужності ${num(cap)}` : ""}${bits.length ? `, ${bits.join(", ")}` : ""}`;
+}
+function underused(a, w, slots) {
+  return slots.filter((i) => a.mask[w][i] === 1 && slotOpen(a, w, N.slots[i]) >= 0.5 && ((c) => c != null && (a.exec[w][i] || 0) < 0.9 * c)(slotCap(a, w, N.slots[i])));
+}
+function diagnose(a, w) {
+  const cards = [], cost = a.costs[w], ser = problemSeries(a);
+  if (ser.cong[w] > 0) N.chokepoints.forEach((c, ix) => {
+    const lots = a.queue[w].filter((r) => r[1] === c);
+    if (!lots.length) return;
+    const qty = sum(lots.map((r) => r[3])), o = a.open[w][ix], oldest = Math.min(...lots.map((r) => r[6])), by = {};
+    lots.forEach((r) => { by[r[2]] = (by[r[2]] || 0) + r[3]; });
+    const via = N.slots.map((sl, i) => i).filter((i) => N.slots[i].route && (a.exec[w][i] || 0) > 0 && slotOpen(a, w, N.slots[i]) < 0.5);
+    const fix = [];
+    if (via.length) fix.push(`Агент і цього тижня штовхає вантаж у протоку: ${via.map((i) => `${esc(N.slots[i].label)} (${num(a.exec[w][i])})`).join("; ")}. Не поповнювати чергу: ставити flows приблизно як норма × відкритість протоки (зараз ${pct(o, 1)}).`);
+    Object.keys(by).forEach((k) => {
+      const alt = N.slots.map((sl, i) => i).filter((i) => !N.slots[i].route && N.slots[i].k === +k && a.mask[w][i] === 1);
+      if (alt.length) fix.push(`Обхід без протоки для «${esc(kName(+k))}»: ${alt.map((i) => `${esc(N.slots[i].label)} (відправлено ${num(a.exec[w][i])} з ${num(slotCap(a, w, N.slots[i]))})`).join("; ")}.`);
+    });
+    if (N.override.some((x) => by[x.k])) fix.push("Для наливного вантажу є керування чергою: release_mode = 2 тримає вантаж, release_mode = 1 випускає вручну через override_qty.");
+    cards.push({ kind: "cong", title: `Затор біля протоки «${esc(node(c).short)}»`, cost: cost[CI.queue_holding],
+      what: [`На початку тижня в черзі ${lots.length} партій, разом ${num(qty)} од.: ${Object.entries(by).map(([k, v]) => `${esc(kName(+k))} ${num(v)}`).join(", ")}.`, `Найстаріша стоїть із тижня ${oldest}, тобто ${w + 1 - oldest} тиж.`],
+      cause: o < 0.5 ? `Протока відкрита лише на ${pct(o, 1)}, тому партії майже не проходять.` : `Протока відкрита на ${pct(o)}, але потік більший за пропускну здатність.`, fix, node: c });
+  });
+  if (ser.energy[w] > 0) N.grids.forEach((g, gi) => {
+    const sh = a.shed[w][gi] || 0;
+    if (sh <= 0.05) return;
+    const G = a.gridG[w][gi], y = a.gridY[w][gi], si = N.stockSlots.findIndex((s) => s.node === g && s.k === 0);
+    const inbound = N.slots.map((sl, i) => i).filter((i) => edge(N.slots[i].laneEdges[N.slots[i].laneEdges.length - 1]).head === g);
+    const fix = [], idle = underused(a, w, inbound);
+    if (idle.length) fix.push(`Додати паливо по відкритих маршрутах, які недовикористані: ${idle.map((i) => `${esc(N.slots[i].label)} (${num(a.exec[w][i])} з ${num(slotCap(a, w, N.slots[i]))})`).join("; ")}.`);
+    else fix.push("Відкриті маршрути вже на межі потужності. Лишається нарощувати запас палива наперед, поки протока відкрита, і не витрачати його на зайві слоти.");
+    const stuck = inbound.filter((i) => slotOpen(a, w, N.slots[i]) < 0.2 || a.mask[w][i] !== 1);
+    if (stuck.length) fix.push(`Не розраховувати на закриті шляхи: ${stuck.map((i) => esc(N.slots[i].label)).join("; ")}.`);
+    cards.push({ kind: "energy", title: `Брак енергії: «${esc(node(g).short)}»`, cost: cost[CI.shed],
+      what: [`Недоподано ${num(sh)} електроенергії.`, `Штраф за тиждень (усі мережі): ${usd(cost[CI.shed])}.`],
+      cause: `Доступна генерація ${num(G)}${y != null ? `, навантаження ${num(y)}` : ""}${si >= 0 ? `. Запас палива в мережі на початку тижня: ${num(a.stock[w][si])}` : ""}.`, fix, node: g });
+  });
+  if (ser.short[w] > 0) N.sinks.forEach((sk, ix) => {
+    const lost = a.lost[w][ix] || 0, dem = a.demand[w][ix] || 0;
+    if (lost <= 0) return;
+    const inbound = N.slots.map((sl, i) => i).filter((i) => edge(N.slots[i].laneEdges[N.slots[i].laneEdges.length - 1]).head === sk.node);
+    const idle = underused(a, w, inbound);
+    const si = N.stockSlots.findIndex((s) => N.osats.includes(s.node) && s.k === sk.k);
+    const fix = [];
+    if (idle.length) fix.push(`Слати готові чипи маршрутом, що працює, але недовикористаний: ${idle.map((i) => `${esc(N.slots[i].label)} (${num(a.exec[w][i])} з ${num(slotCap(a, w, N.slots[i]))})`).join("; ")}.`);
+    if (si >= 0 && (a.stock[w][si] || 0) < 0.05 * Math.max(1, dem)) fix.push("На пакуванні немає чипів для відправки. Причина раніше за ланцюгом: перевірте запаси фабрик і маршрути до пакування, а вантаж шліть із запасом на час у дорозі.");
+    if (!fix.length) fix.push("Маршрути до ринку вже на межі. Виграти можна лише раніше: планувати відправку наперед за прогнозом попиту й часом у дорозі.");
+    cards.push({ kind: "short", title: `Дефіцит: «${esc(node(sk.node).short)}» недоотримав чипи`, cost: cost[CI.shortage],
+      what: [`Недопоставлено ${num(lost)} із попиту ${num(dem)} (${pct(dem ? lost / dem : 0)}).`, `Штраф ${usd(cost[CI.shortage])} за тиждень.`],
+      cause: `Маршрути до ринку: ${inbound.map((i) => slotState(a, w, i)).join("; ")}.${si >= 0 ? ` Готових чипів на пакуванні на початку тижня: ${num(a.stock[w][si])}.` : ""}`, fix, node: sk.node });
+  });
+  const m = mistakes(a, w);
+  if (m.n) {
+    const fix = [], what = [];
+    if (m.forb.length) { what.push(`Просить відправити по забороненому: ${m.forb.map((x) => `${esc(N.slots[x.i].label)} (${num(x.req)})`).join("; ")}.`); fix.push("Для слотів, де action_mask = 0, ставити flows = 0."); }
+    if (m.closed.length) { what.push(`Шле через майже закриту протоку: ${m.closed.map((x) => `${esc(N.slots[x.i].label)} (${num(x.ex)}, відкрито ${pct(x.open, 1)})`).join("; ")}.`); fix.push("Для слотів через протоку множити flows на її відкритість graph_now.open (так робить heuristic)."); }
+    if (m.clip.length) { what.push(`Просить більше, ніж дозволяє потужність: ${m.clip.map((x) => `${esc(N.slots[x.i].label)} (запит ${num(x.req)}, виконано ${num(x.ex)})`).join("; ")}.`); fix.push("Просити не більше за graph_now.u: надлишок обрізається і нічого не дає."); }
+    cards.push({ kind: "mistake", title: "Помилки в рішенні агента", cost: null, what, cause: "Це прямі розбіжності між тим, що агент бачив у observation, і тим, що він повернув у flows.", fix, node: null });
+  }
+  return cards;
+}
+function drawDiag() {
+  const a = A(), w = S.w, cards = diagnose(a, w);
+  $("#diagTitle").textContent = `Що пішло не так на тижні ${w + 1}: ${a.label}`;
+  $("#diag").innerHTML = cards.length ? `<div class="pgrid">${cards.map((c) => `<article class="prob"><header><span><span class="dot" style="background:${PCOL[c.kind]}"></span><b>${c.title}</b></span>${c.cost != null ? `<span class="pill warn">${usd(c.cost)} за тиждень</span>` : ""}</header>
+    <div class="lbl">Що видно</div><ul>${c.what.map((x) => `<li>${x}</li>`).join("")}</ul>
+    <div class="lbl">Чому так</div><p>${c.cause}</p>
+    <div class="lbl">Що виправити</div><ul>${c.fix.map((x) => `<li>${x}</li>`).join("")}</ul>
+    ${c.node != null ? `<div><button class="btn" data-node="${c.node}">Показати на карті</button></div>` : ""}</article>`).join("")}</div>`
+    : `<div class="prob ok"><b>Помітних проблем на цьому тижні немає.</b><p>Ні затору біля протоки, ні браку енергії, ні втраченого попиту, ні явних помилок у відправці.</p></div>`;
+}
+
 /* controls and timeline */
 function buildControls() {
   $("#subtitle").textContent = `мережа ${N.instance}, ${T} тижнів, режим інформації «${D.regime}»${D.quick ? ", швидка оцінка naive-правила" : ""}`;
@@ -447,17 +583,19 @@ function syncControls() {
   $("#selLabel").value = S.label;
 }
 function drawTimeline() {
-  const a = A(), naive = E().naive.costs.map(sum), mine = costTotals(a);
-  const W = 1000, H = 92, L = 6, R = 6, top = 22, bot = 16, bw = (W - L - R) / T;
+  const a = A(), naive = E().naive.costs.map(sum), mine = costTotals(a), ser = problemSeries(a);
+  const W = 1000, H0 = 92, ROW = 9, H = H0 + PORDER.length * ROW + 4, L = 6, R = 6, top = 22, bot = 16, bw = (W - L - R) / T;
   const max = niceMax(Math.max(...mine, ...naive));
-  const y = (v) => H - bot - (v / max) * (H - top - bot);
-  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Витрати по тижнях та події">`;
+  const y = (v) => H0 - bot - (v / max) * (H0 - top - bot);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Витрати по тижнях, події та проблеми">`;
   mine.forEach((v, i) => {
     const x = L + i * bw, cur = i === S.w;
     s += `<g data-week="${i}" style="cursor:pointer"><rect x="${x}" y="0" width="${bw}" height="${H}" fill="${cur ? "var(--accent-soft)" : "transparent"}"/>`;
-    s += `<rect x="${x + 2}" y="${y(v)}" width="${bw - 4}" height="${H - bot - y(v)}" rx="2" fill="${agentColor(S.agent)}" opacity="${cur ? 1 : 0.62}"/>`;
-    s += `<title>Тиждень ${i + 1}: витрати ${usd(v)}, naive ${usd(naive[i])}</title></g>`;
-    if ((i + 1) % 5 === 0 || i === 0) s += `<text class="ax" x="${x + bw / 2}" y="${H - 3}" text-anchor="middle" style="font-size:10px">${i + 1}</text>`;
+    s += `<rect x="${x + 2}" y="${y(v)}" width="${bw - 4}" height="${H0 - bot - y(v)}" rx="2" fill="${agentColor(S.agent)}" opacity="${cur ? 1 : 0.62}"/>`;
+    const probs = PORDER.filter((k) => ser[k][i] > 0).map((k) => PNAME[k]);
+    s += `<title>Тиждень ${i + 1}: витрати ${usd(v)}, naive ${usd(naive[i])}${probs.length ? ". Проблеми: " + probs.join(", ") : ""}</title></g>`;
+    if ((i + 1) % 5 === 0 || i === 0) s += `<text class="ax" x="${x + bw / 2}" y="${H0 - 3}" text-anchor="middle" style="font-size:10px">${i + 1}</text>`;
+    PORDER.forEach((k, r) => { const lv = ser[k][i]; if (lv > 0) s += `<rect x="${x + 2}" y="${H0 + r * ROW}" width="${bw - 4}" height="${ROW - 2}" rx="2" style="fill:${PCOL[k]};opacity:${0.3 + 0.7 * lv};pointer-events:none"/>`; });
   });
   s += `<path d="${naive.map((v, i) => `${i ? "L" : "M"}${(L + i * bw + bw / 2).toFixed(1)},${y(v).toFixed(1)}`).join("")}" fill="none" stroke="var(--naive)" stroke-width="1.6" stroke-dasharray="4 3"/>`;
   E().events.forEach((ev) => {
@@ -465,8 +603,9 @@ function drawTimeline() {
     const x = L + (ev.week - 1) * bw + bw / 2, big = ev.kind === "chokepoint";
     s += `<circle cx="${x}" cy="${big ? 8 : 14}" r="${big ? 5 : 3}" fill="${ev.severity === "bad" ? "var(--bad)" : "var(--warn)"}" style="pointer-events:none"/>`;
   });
-  s += `<text class="ax" x="${L + 2}" y="11" style="font-size:10px">витрати по тижнях (штрих: naive) · крапки: події, великі: протока</text></svg>`;
+  s += `<text class="ax" x="${L + 2}" y="11" style="font-size:10px">витрати по тижнях (штрих: naive) · крапки: події, великі: протока · смужки внизу: проблеми</text></svg>`;
   $("#timeline").innerHTML = s;
+  $("#tlLegend").innerHTML = PORDER.map((k, r) => `<span><i style="background:${PCOL[k]}"></i>${PNAME[k]}</span>`).join("");
 }
 
 /* the map */
@@ -523,12 +662,27 @@ function drawMap() {
       cls += " chk " + (o == null ? "" : o < 0.1 ? "bad" : o < 0.9 ? "warn" : "good");
       sub = o == null ? "стан невідомий" : `відкрито ${pct(o, o < 0.1 ? 1 : 0)}`;
     }
-    s += `<g class="${cls}" data-node="${i}"><rect class="card" x="${x - bw / 2}" y="${y - bh / 2}" width="${bw}" height="${bh}" rx="9"/>`;
+    const badges = [];
+    if (n.type === "chokepoint") { const q = a.queue[w].filter((r) => r[1] === i); if (q.length && problemSeries(a).cong[w] > 0) badges.push([`черга ${q.length} парт., ${num(sum(q.map((r) => r[3])))} од.`, PCOL.cong]); }
+    const gi = N.grids.indexOf(i);
+    if (gi >= 0) {
+      const sh = w > 0 ? a.lastShed[w][gi] || 0 : 0, G = a.gridG[w][gi], yb = a.gridY[w][gi];
+      if (sh > 0.05) badges.push([`брак енергії, недоподано ${num(sh)}`, PCOL.energy]);
+      else if (G != null && yb != null && G < yb - 0.05) badges.push(["генерація нижча за навантаження", PCOL.energy]);
+    }
+    const sk = N.sinks.findIndex((q) => q.node === i);
+    if (sk >= 0 && w > 0 && (a.lastLost[w][sk] || 0) > 0) badges.push([`втрачено попит ${num(a.lastLost[w][sk])}`, PCOL.short]);
+    const halo = n.type !== "chokepoint" && badges.length ? ` style="stroke:${badges[0][1]};stroke-width:2.4"` : "";
+    s += `<g class="${cls}" data-node="${i}"><rect class="card"${halo} x="${x - bw / 2}" y="${y - bh / 2}" width="${bw}" height="${bh}" rx="9"/>`;
     s += `<rect class="band" x="${x - bw / 2 + 1}" y="${y - bh / 2 + 1}" width="5" height="${bh - 2}" rx="2.5" fill="${NODE_COL[n.type] || "var(--ink3)"}"/>`;
     s += `<text class="nname" x="${x - bw / 2 + 14}" y="${y - bh / 2 + 17}">${esc(n.short)}</text><text class="nsub" x="${x - bw / 2 + 14}" y="${y - bh / 2 + 31}">${esc(sub)}</text>`;
     stocks.forEach((st, j) => {
       const v = a.stock[w][st.i], by = y - bh / 2 + 40 + j * 11 + (n.type === "chokepoint" ? 6 : 0), fw = (bw - 28) * Math.min(1, (v || 0) / stockMax[st.i]);
       s += `<rect class="stockbar" x="${x - bw / 2 + 14}" y="${by}" width="${bw - 28}" height="6" rx="3"/><rect x="${x - bw / 2 + 14}" y="${by}" width="${fw}" height="6" rx="3" style="fill:${KCOL[st.k]}"/><title>Запас: ${esc(kName(st.k))}, ${num(v)}</title>`;
+    });
+    badges.forEach(([t, col], j) => {
+      const wd = 24 + t.length * 5.9, by = y - bh / 2 - 21 - j * 19;
+      s += `<g class="badge"><rect x="${x - bw / 2}" y="${by}" width="${wd}" height="17" rx="8.5" style="stroke:${col}"/><circle cx="${x - bw / 2 + 9}" cy="${by + 8.5}" r="3.5" style="fill:${col}"/><text x="${x - bw / 2 + 17}" y="${by + 12.2}">${esc(t)}</text></g>`;
     });
     s += `<title>${esc(n.label)}</title></g>`;
   });
@@ -851,7 +1005,7 @@ const TABS = { obs: tabObs, act: tabAct, res: tabRes, ev: tabEv, gl: tabGl };
 /* render */
 function renderAll(keepScroll = true) {
   const sy = window.scrollY;
-  syncControls(); drawTimeline(); drawMap(); drawInspector();
+  syncControls(); drawTimeline(); drawMap(); drawInspector(); drawDiag();
   const open = [...document.querySelectorAll("#tabBody details.sec")].map((d) => d.open);
   $("#tabBody").innerHTML = TABS[S.tab]();
   if (open.length) document.querySelectorAll("#tabBody details.sec").forEach((d, i) => { if (open[i] != null && S.tabKept === S.tab) d.open = open[i]; });
