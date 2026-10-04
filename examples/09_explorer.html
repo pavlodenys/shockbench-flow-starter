@@ -1,0 +1,912 @@
+r<title>Провідник ShockBench-Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: a sticky control bar over a week timeline, then the network map beside an inspector, then five tabs that follow
+   one week's loop: what the agent sees, what it does, what it costs. */
+:root {
+  --bg: #eef2f5;
+  --surface: #ffffff;
+  --surface2: #f4f7f9;
+  --ink: #14202b;
+  --ink2: #4a5b6a;
+  --ink3: #7b8a97;
+  --line: #d6dee5;
+  --accent: #0a6c8c;
+  --accent-soft: #d9eef5;
+  --ok: #1f8a5b;
+  --ok-soft: #dcf1e7;
+  --warn: #b86e00;
+  --warn-soft: #faecd0;
+  --bad: #c8372d;
+  --bad-soft: #fadfdb;
+  --k0: #2a6fdb;
+  --k1: #7a5bd0;
+  --k2: #d4781f;
+  --k3: #1c8d78;
+  --c0: #3b78c4;
+  --c1: #d1572f;
+  --c2: #7a62c8;
+  --c3: #b8962e;
+  --c4: #8f6fa8;
+  --c5: #c23b5a;
+  --c6: #6b7a86;
+  --c7: #e0902a;
+  --a0: #0a6c8c;
+  --a1: #c2501f;
+  --a2: #7a62c8;
+  --a3: #1f8a5b;
+  --a4: #b8962e;
+  --naive: #7b8a97;
+  --shadow: 0 1px 2px rgb(20 32 43 / 0.06), 0 4px 14px rgb(20 32 43 / 0.05);
+  --font: "Onest", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d141a;
+    --surface: #152029;
+    --surface2: #1a2732;
+    --ink: #e6edf2;
+    --ink2: #a5b4c0;
+    --ink3: #75869a;
+    --line: #28384a;
+    --accent: #4cc0e0;
+    --accent-soft: #123846;
+    --ok: #4cc491;
+    --ok-soft: #13342a;
+    --warn: #e6a53a;
+    --warn-soft: #3a2c10;
+    --bad: #f0675c;
+    --bad-soft: #3d1c19;
+    --k0: #6aa0f5;
+    --k1: #a48ae8;
+    --k2: #ec9b4e;
+    --k3: #4cc4ac;
+    --c0: #6aa0f5;
+    --c1: #f08a62;
+    --c2: #a48ae8;
+    --c3: #d6b85a;
+    --c4: #bc9bd6;
+    --c5: #ee6f8c;
+    --c6: #93a3b0;
+    --c7: #f0b05a;
+    --a0: #4cc0e0;
+    --a1: #f0865a;
+    --a2: #a48ae8;
+    --a3: #4cc491;
+    --a4: #d6b85a;
+    --naive: #93a3b0;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d141a;
+  --surface: #152029;
+  --surface2: #1a2732;
+  --ink: #e6edf2;
+  --ink2: #a5b4c0;
+  --ink3: #75869a;
+  --line: #28384a;
+  --accent: #4cc0e0;
+  --accent-soft: #123846;
+  --ok: #4cc491;
+  --ok-soft: #13342a;
+  --warn: #e6a53a;
+  --warn-soft: #3a2c10;
+  --bad: #f0675c;
+  --bad-soft: #3d1c19;
+  --k0: #6aa0f5;
+  --k1: #a48ae8;
+  --k2: #ec9b4e;
+  --k3: #4cc4ac;
+  --c0: #6aa0f5;
+  --c1: #f08a62;
+  --c2: #a48ae8;
+  --c3: #d6b85a;
+  --c4: #bc9bd6;
+  --c5: #ee6f8c;
+  --c6: #93a3b0;
+  --c7: #f0b05a;
+  --a0: #4cc0e0;
+  --a1: #f0865a;
+  --a2: #a48ae8;
+  --a3: #4cc491;
+  --a4: #d6b85a;
+  --naive: #93a3b0;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font); }
+button, select, input { font: inherit; color: inherit; }
+code, .mono { font-family: var(--mono); }
+.wrap { max-width: 1480px; margin: 0 auto; padding-inline: 16px; padding-block: 0 48px; }
+
+/* top bar */
+.top { background: var(--bg); padding-block: 12px 8px; border-bottom: 1px solid var(--line); }
+@media (min-width: 1041px) and (min-height: 780px) { .top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; } }
+.top-row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+.brand { display: flex; flex-direction: column; gap: 0; min-width: 0; margin-right: auto; }
+.brand b { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.brand span { color: var(--ink2); font-size: 12px; }
+.field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.field > label, .lbl { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
+select { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; max-width: 100%; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 5px 10px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.seg button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.seg i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.scrub { display: flex; align-items: center; gap: 8px; flex: 1 1 360px; min-width: 0; }
+.scrub input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible, select:focus-visible, .tabs button:focus-visible, [tabindex]:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.wk { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 110px; }
+.timeline { margin-top: 6px; }
+.timeline svg { display: block; width: 100%; height: auto; }
+
+/* cards */
+.grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+@media (max-width: 1040px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); min-width: 0; }
+.card > header { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; padding: 12px 14px 0; }
+.card h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.card .body { padding: 12px 14px 14px; min-width: 0; }
+.hint { color: var(--ink2); margin: 0 0 10px; max-width: 78ch; }
+.map-wrap { padding: 4px 6px 8px; }
+#map { width: 100%; height: auto; display: block; touch-action: manipulation; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 0 14px 12px; color: var(--ink2); font-size: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { display: inline-block; width: 22px; height: 0; border-top: 3px solid; }
+
+/* svg map */
+.edge path.line { fill: none; stroke-linecap: round; }
+.edge .hit { fill: none; stroke: transparent; stroke-width: 16; cursor: pointer; }
+.edge.ok path.line { stroke: var(--ink3); }
+.edge.limited path.line { stroke: var(--warn); }
+.edge.blocked path.line { stroke: var(--bad); stroke-dasharray: 7 5; }
+.edge.grid path.line { stroke: var(--ink3); stroke-dasharray: 2 5; }
+.edge.dim { opacity: 0.18; }
+.edge.sel path.line { filter: drop-shadow(0 0 4px var(--accent)); }
+.edge:hover path.line { stroke-opacity: 1; }
+.elabel rect { fill: var(--surface); stroke: var(--line); }
+.elabel text, .ax, .nsub { font-family: var(--font); fill: var(--ink2); font-size: 11px; }
+.elabel text { font-variant-numeric: tabular-nums; }
+.node { cursor: pointer; }
+.node rect.card { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+.node:hover rect.card { stroke: var(--accent); }
+.node.sel rect.card { stroke: var(--accent); stroke-width: 2.4; }
+.node .nname { font-size: 12.5px; font-weight: 650; fill: var(--ink); font-family: var(--font); }
+.node .band { opacity: 0.9; }
+.node .stockbar { fill: var(--surface2); }
+.node.chk rect.card { stroke-width: 2.5; }
+.node.chk.bad rect.card { stroke: var(--bad); }
+.node.chk.warn rect.card { stroke: var(--warn); }
+.node.chk.good rect.card { stroke: var(--ok); }
+
+/* tabs */
+.tabs-card { margin-top: 16px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0; padding: 8px 10px 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 9px 12px; cursor: pointer; color: var(--ink2); font-weight: 600; white-space: nowrap; display: inline-flex; align-items: baseline; gap: 6px; }
+.tabs button small { font-weight: 400; color: var(--ink3); }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tab-body { padding: 14px; min-width: 0; }
+.sec { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; background: var(--surface); }
+.sec > summary { cursor: pointer; padding: 10px 12px; font-weight: 650; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.sec > summary::-webkit-details-marker { display: none; }
+.sec > summary::before { content: "▸"; color: var(--ink3); width: 12px; }
+.sec[open] > summary::before { content: "▾"; }
+.sec .inner { padding: 0 12px 12px; min-width: 0; }
+.sec .sub { font-weight: 400; color: var(--ink2); }
+.fld { font-family: var(--mono); font-size: 11px; background: var(--surface2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: var(--ink2); white-space: nowrap; }
+.chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+
+/* tables */
+.tbl { overflow-x: auto; max-width: 100%; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th { text-align: left; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink3); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--surface2); }
+tr.sel td { background: var(--accent-soft); }
+tr.dev td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+tr.bad td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.na { color: var(--ink3); }
+.sm { font-size: 12px; color: var(--ink2); }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.info { background: var(--accent-soft); color: var(--accent); }
+.pill.mute { background: var(--surface2); color: var(--ink2); }
+.bar { display: inline-block; width: 90px; height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; vertical-align: middle; position: relative; }
+.bar i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+.bar.wide { width: 140px; }
+.bar b { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink); opacity: 0.55; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+
+/* misc blocks */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.kpi { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface2); min-width: 0; }
+.kpi .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.kpi .l { color: var(--ink2); font-size: 12px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.two > * { min-width: 0; }
+.chart { width: 100%; height: auto; display: block; }
+.chart text { font-family: var(--font); fill: var(--ink2); font-size: 11px; }
+.chart .grid line { stroke: var(--line); }
+.insp h3 { margin: 0; font-size: 16px; }
+.insp .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 10px 0; }
+.insp .kv dt { color: var(--ink2); }
+.insp .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.insp h4 { margin: 14px 0 4px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink3); }
+.linklist { display: flex; flex-direction: column; gap: 2px; }
+.linklist button { text-align: left; background: none; border: 0; padding: 4px 6px; border-radius: 6px; cursor: pointer; display: flex; gap: 8px; justify-content: space-between; }
+.linklist button:hover { background: var(--surface2); }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.step { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface2); }
+.step b { display: block; margin-bottom: 2px; }
+.step span { color: var(--ink2); font-size: 13px; }
+.note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 8px 12px; border-radius: 0 6px 6px 0; margin: 0 0 12px; max-width: 90ch; }
+.note.bad { border-color: var(--bad); background: var(--bad-soft); }
+.evlist { display: flex; flex-direction: column; gap: 2px; }
+.ev { display: grid; grid-template-columns: 62px 1fr; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; text-align: left; background: none; border: 0; width: 100%; }
+.ev:hover { background: var(--surface2); }
+.ev.now { background: var(--accent-soft); }
+.ev .w { font-variant-numeric: tabular-nums; color: var(--ink2); font-weight: 600; }
+.ev .tt { min-width: 0; overflow-wrap: anywhere; }
+.sev { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.sev.bad { background: var(--bad); } .sev.warn { background: var(--warn); } .sev.info { background: var(--ink3); }
+.gl td:first-child { white-space: nowrap; }
+.theme { margin-left: 6px; }
+.foot { color: var(--ink3); font-size: 12px; margin-top: 18px; }
+@media (max-width: 560px) { .brand { flex-basis: 100%; } .wk { min-width: 0; } }
+@media (prefers-reduced-motion: no-preference) { .bar i { transition: width 0.2s; } }
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div class="top-row">
+      <div class="brand"><b>Провідник ShockBench-Flow</b><span id="subtitle"></span></div>
+      <div class="field"><label for="selEp">Епізод</label><select id="selEp"></select></div>
+      <div class="field"><span class="lbl">Агент</span><div class="seg" id="segAgent" role="group" aria-label="Агент"></div></div>
+      <button class="btn theme" id="btnTheme" title="Світла або темна тема">Тема</button>
+    </div>
+    <div class="top-row" style="margin-top:8px">
+      <div class="scrub">
+        <button class="btn" id="btnPrev" aria-label="Попередній тиждень">◀</button>
+        <button class="btn" id="btnPlay" aria-label="Відтворити">▶ Грати</button>
+        <button class="btn" id="btnNext" aria-label="Наступний тиждень">▶</button>
+        <input type="range" id="rng" min="1" value="1" step="1" aria-label="Тиждень">
+        <span class="wk" id="wkLabel"></span>
+      </div>
+    </div>
+  </div>
+  <div class="timeline" id="timeline"></div>
+
+  <div class="grid">
+    <section class="card" aria-label="Карта мережі">
+      <header>
+        <h2>Мережа на початку тижня <span class="sm" id="mapWeek"></span></h2>
+        <div class="field" style="flex-direction:row;align-items:center;gap:8px"><label for="selLabel">Підписи на маршрутах</label>
+          <select id="selLabel">
+            <option value="flow">Скільки відправлено</option>
+            <option value="util">Завантаження, % від норми</option>
+            <option value="cap">Потужність цього тижня</option>
+            <option value="transit">У дорозі зараз</option>
+            <option value="tariff">Мито</option>
+            <option value="none">Без підписів</option>
+          </select></div>
+      </header>
+      <div class="map-wrap"><svg id="map" viewBox="0 0 1000 640" role="img" aria-label="Схема мережі постачання"></svg></div>
+      <div class="legend">
+        <span><i style="border-color:var(--ink3)"></i>маршрут працює</span>
+        <span><i style="border-color:var(--warn)"></i>потужність урізана або протока частково закрита</span>
+        <span><i style="border-color:var(--bad);border-top-style:dashed"></i>заборонено або закрито</span>
+        <span><i style="border-color:var(--ink3);border-top-style:dotted"></i>зв'язок енергомережі з фабрикою</span>
+        <span>Товщина лінії: скільки агент реально відправив відносно норми.</span>
+      </div>
+    </section>
+    <aside class="card insp" aria-label="Деталі"><div class="body" id="insp"></div></aside>
+  </div>
+
+  <section class="card tabs-card" aria-label="Тиждень крок за кроком">
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div class="tab-body" id="tabBody" role="tabpanel"></div>
+  </section>
+  <p class="foot" id="foot"></p>
+</div>
+
+<script type="application/json" id="data">__DATA__</script>
+<script>
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+const N = D.network, T = N.T;
+const AGENTS = D.agentOrder;
+const S = { ep: 0, agent: AGENTS[0], w: 0, sel: null, tab: "obs", label: "flow", compare: false, onlyDev: false, filt: { bad: true, warn: true, info: true }, play: null };
+const KCOL = ["var(--k0)", "var(--k1)", "var(--k2)", "var(--k3)"];
+const CCOL = ["var(--c0)", "var(--c1)", "var(--c2)", "var(--c3)", "var(--c4)", "var(--c5)", "var(--c6)", "var(--c7)"];
+const ACOL = ["var(--a0)", "var(--a1)", "var(--a2)", "var(--a3)", "var(--a4)"];
+const agentColor = (key) => ACOL[AGENTS.indexOf(key) % ACOL.length];
+const NODE_COL = { source: "var(--k0)", material: "var(--k1)", grid: "var(--c3)", chokepoint: "var(--bad)", fab: "var(--k3)", osat: "var(--k2)", sink: "var(--c5)", terminal: "var(--ink3)" };
+
+const E = () => D.episodes[S.ep];
+const A = () => E().agents[S.agent];
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const $ = (s, el = document) => el.querySelector(s);
+const NA = '<span class="na" title="Агент цього не бачить: значення не спостерігається">—</span>';
+const NF = [0, 1, 2, 3].map((d) => new Intl.NumberFormat("uk-UA", { maximumFractionDigits: d }));
+function num(v, d) {
+  if (v == null || Number.isNaN(v)) return NA;
+  const a = Math.abs(v);
+  return NF[d ?? (a >= 100 ? 0 : a >= 10 ? 1 : a >= 1 ? 2 : 3)].format(v);
+}
+function pct(v, d = 0) { return v == null ? NA : (v * 100).toFixed(d).replace(".", ",") + "%"; }
+function usd(v) {
+  if (v == null) return NA;
+  const a = Math.abs(v), sign = v < 0 ? "−" : "";
+  if (a >= 1e9) return sign + "$" + NF[2].format(a / 1e9) + " млрд";
+  if (a >= 1e6) return sign + "$" + NF[1].format(a / 1e6) + " млн";
+  if (a >= 1e3) return sign + "$" + NF[0].format(a / 1e3) + " тис";
+  return sign + "$" + NF[0].format(a);
+}
+const code = (...c) => `<span class="chips">${c.map((x) => `<code class="fld">${esc(x)}</code>`).join("")}</span>`;
+function bar(v, max, color, extra = "", wide = false) {
+  if (v == null || !max) return `<span class="bar${wide ? " wide" : ""}"></span>`;
+  const w = Math.max(0, Math.min(1, v / max)) * 100;
+  return `<span class="bar${wide ? " wide" : ""}"><i style="width:${w}%;${color ? `background:${color}` : ""}"></i>${extra}</span>`;
+}
+const kName = (k) => N.commodities[k].label;
+const node = (i) => N.nodes[i];
+const edge = (i) => N.edges[i];
+const sum = (a) => a.reduce((x, y) => x + (y || 0), 0);
+const cumsum = (a) => { let s = 0; return a.map((v) => (s += v || 0)); };
+const costTotals = (a) => a.costs.map(sum);
+
+/* derived facts of the current week */
+function chkOpen(a, w, nodeIdx) {
+  const p = N.chokepoints.indexOf(nodeIdx);
+  return p < 0 ? null : a.open[w][p];
+}
+function edgeFlow(a, w, e, key = "exec") {
+  let s = 0;
+  N.slots.forEach((sl, i) => { if (sl.laneEdges.includes(e)) s += a[key][w][i] || 0; });
+  return s;
+}
+function edgeProhibited(a, w, e) { return a.prohibited[w].filter((p) => p[0] === e).map((p) => p[1]); }
+function edgeTransit(a, w, e) { return a.pipeline[w].filter((p) => p[0] === e).reduce((x, p) => x + p[2], 0); }
+function edgeState(a, w, e) {
+  const ed = edge(e), reasons = [];
+  const pro = edgeProhibited(a, w, e);
+  let state = ed.mode === "енергозв'язок" ? "grid" : "ok";
+  if (pro.length) {
+    reasons.push(`заборона на ${pro.map(kName).join(", ")}`);
+    state = ed.k.length && pro.length >= ed.k.length ? "blocked" : "limited";
+  }
+  const u = a.u[w][e];
+  if (u != null && ed.u0) {
+    const f = u / ed.u0;
+    if (f < 0.02) { state = "blocked"; reasons.push("потужність майже нульова"); }
+    else if (f < 0.97) { if (state !== "blocked") state = "limited"; reasons.push(`потужність ${pct(f)} від норми`); }
+  }
+  for (const n of [ed.tail, ed.head]) {
+    const o = chkOpen(a, w, n);
+    if (o != null && o < 0.97) {
+      reasons.push(`протока відкрита на ${pct(o, o < 0.1 ? 1 : 0)}`);
+      if (o < 0.05) state = "blocked"; else if (state !== "blocked") state = "limited";
+    }
+  }
+  return { state, reasons };
+}
+const STATE_TXT = { ok: ["ok", "працює"], limited: ["warn", "обмежено"], blocked: ["bad", "закрито"], grid: ["mute", "зв'язок"] };
+function firstClosure(a) {
+  for (let w = 0; w < T; w++) if (a.open[w].some((o) => o != null && o < 0.5)) return w;
+  return -1;
+}
+
+/* small svg helpers */
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v))), f = v / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+}
+function spark(vals, o = {}) {
+  const W = o.w || 230, H = o.h || 40, pad = 4;
+  const real = vals.filter((v) => v != null);
+  if (!real.length) return "";
+  let lo = o.min ?? Math.min(...real), hi = o.max ?? Math.max(...real);
+  if (hi === lo) { hi += 1; lo -= o.min == null ? 1 : 0; }
+  const x = (i) => pad + (i / (vals.length - 1)) * (W - 2 * pad), y = (v) => H - pad - ((v - lo) / (hi - lo)) * (H - 2 * pad);
+  let d = "", pen = false;
+  vals.forEach((v, i) => { if (v == null) { pen = false; return; } d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; pen = true; });
+  const cur = o.cur != null && vals[o.cur] != null ? `<circle cx="${x(o.cur)}" cy="${y(vals[o.cur])}" r="3.5" fill="${o.color || "var(--accent)"}"/><line x1="${x(o.cur)}" x2="${x(o.cur)}" y1="${pad}" y2="${H - pad}" stroke="var(--ink3)" stroke-dasharray="2 3"/>` : "";
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" style="max-width:${W}px"><path d="${d}" fill="none" stroke="${o.color || "var(--accent)"}" stroke-width="1.8" stroke-linejoin="round"/>${cur}</svg>`;
+}
+
+/* controls and timeline */
+function buildControls() {
+  $("#subtitle").textContent = `мережа ${N.instance}, ${T} тижнів, режим інформації «${D.regime}»${D.quick ? ", швидка оцінка naive-правила" : ""}`;
+  $("#selEp").innerHTML = D.episodes.map((e, i) => `<option value="${i}">Епізод ${e.episode}</option>`).join("");
+  $("#segAgent").innerHTML = AGENTS.map((k) => `<button type="button" data-agent="${esc(k)}" aria-pressed="false"><i style="background:${agentColor(k)}"></i>${esc(D.episodes[0].agents[k].label)}</button>`).join("");
+  $("#rng").max = T;
+  $("#tabs").innerHTML = [["obs", "1", "Що бачить агент"], ["act", "2", "Що він робить"], ["res", "3", "Що це коштує"], ["ev", "", "Події й сигнали"], ["gl", "", "Словник полів"]]
+    .map(([id, n, t]) => `<button role="tab" data-tab="${id}" aria-selected="false">${n ? `<small>${n}</small>` : ""}${t}</button>`).join("");
+}
+function syncControls() {
+  $("#selEp").value = S.ep;
+  document.querySelectorAll("#segAgent button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.agent === S.agent));
+  document.querySelectorAll("#tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === S.tab));
+  $("#rng").value = S.w + 1;
+  $("#wkLabel").textContent = `Тиждень ${S.w + 1} з ${T}`;
+  $("#btnPlay").textContent = S.play ? "⏸ Пауза" : "▶ Грати";
+  $("#selLabel").value = S.label;
+}
+function drawTimeline() {
+  const a = A(), naive = E().naive.costs.map(sum), mine = costTotals(a);
+  const W = 1000, H = 92, L = 6, R = 6, top = 22, bot = 16, bw = (W - L - R) / T;
+  const max = niceMax(Math.max(...mine, ...naive));
+  const y = (v) => H - bot - (v / max) * (H - top - bot);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Витрати по тижнях та події">`;
+  mine.forEach((v, i) => {
+    const x = L + i * bw, cur = i === S.w;
+    s += `<g data-week="${i}" style="cursor:pointer"><rect x="${x}" y="0" width="${bw}" height="${H}" fill="${cur ? "var(--accent-soft)" : "transparent"}"/>`;
+    s += `<rect x="${x + 2}" y="${y(v)}" width="${bw - 4}" height="${H - bot - y(v)}" rx="2" fill="${agentColor(S.agent)}" opacity="${cur ? 1 : 0.62}"/>`;
+    s += `<title>Тиждень ${i + 1}: витрати ${usd(v)}, naive ${usd(naive[i])}</title></g>`;
+    if ((i + 1) % 5 === 0 || i === 0) s += `<text class="ax" x="${x + bw / 2}" y="${H - 3}" text-anchor="middle" style="font-size:10px">${i + 1}</text>`;
+  });
+  s += `<path d="${naive.map((v, i) => `${i ? "L" : "M"}${(L + i * bw + bw / 2).toFixed(1)},${y(v).toFixed(1)}`).join("")}" fill="none" stroke="var(--naive)" stroke-width="1.6" stroke-dasharray="4 3"/>`;
+  E().events.forEach((ev) => {
+    if (ev.week < 2 || ev.severity === "info") return;
+    const x = L + (ev.week - 1) * bw + bw / 2, big = ev.kind === "chokepoint";
+    s += `<circle cx="${x}" cy="${big ? 8 : 14}" r="${big ? 5 : 3}" fill="${ev.severity === "bad" ? "var(--bad)" : "var(--warn)"}" style="pointer-events:none"/>`;
+  });
+  s += `<text class="ax" x="${L + 2}" y="11" style="font-size:10px">витрати по тижнях (штрих: naive) · крапки: події, великі: протока</text></svg>`;
+  $("#timeline").innerHTML = s;
+}
+
+/* the map */
+function nodeBox(n, a) {
+  const stocks = N.stockSlots.map((s, i) => ({ ...s, i })).filter((s) => s.node === n);
+  const isChk = node(n).type === "chokepoint";
+  return { w: isChk ? 150 : 138, h: 40 + stocks.length * 11 + (isChk ? 6 : 0), stocks };
+}
+function drawMap() {
+  const a = A(), w = S.w, W = 1000, H = 640;
+  const pos = N.nodes.map((n) => ({ x: n.x * W, y: 34 + n.y * (H - 70) }));
+  const boxes = N.nodes.map((_, i) => nodeBox(i, a));
+  const border = (i, tx, ty) => {
+    const { x, y } = pos[i], { w: bw, h: bh } = boxes[i], dx = tx - x, dy = ty - y;
+    const k = 1 / Math.max(Math.abs(dx) / (bw / 2 + 4), Math.abs(dy) / (bh / 2 + 4), 1e-6);
+    return [x + dx * k, y + dy * k];
+  };
+  const groups = {};
+  N.edges.forEach((ed, e) => { const key = [Math.min(ed.tail, ed.head), Math.max(ed.tail, ed.head)].join("-"); (groups[key] ||= []).push(e); });
+  const mx = { ok: "ar-ok", limited: "ar-limited", blocked: "ar-blocked", grid: "ar-grid" };
+  let s = `<defs>${[["ok", "var(--ink3)"], ["limited", "var(--warn)"], ["blocked", "var(--bad)"], ["grid", "var(--ink3)"]].map(([k, c]) => `<marker id="ar-${k}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:${c}"/></marker>`).join("")}</defs>`;
+  const labels = [];
+  const order = N.edges.map((_, e) => e).sort((p, q) => edgeFlow(a, w, p) - edgeFlow(a, w, q));
+  const selE = S.sel && S.sel.t === "edge" ? S.sel.i : null;
+  order.forEach((e) => {
+    const ed = edge(e), key = [Math.min(ed.tail, ed.head), Math.max(ed.tail, ed.head)].join("-"), g = groups[key], idx = g.indexOf(e);
+    const c0 = pos[Math.min(ed.tail, ed.head)], c1 = pos[Math.max(ed.tail, ed.head)];
+    const len = Math.hypot(c1.x - c0.x, c1.y - c0.y) || 1, px = -(c1.y - c0.y) / len, py = (c1.x - c0.x) / len;
+    const off = (idx - (g.length - 1) / 2) * 30;
+    const tail = pos[ed.tail], head = pos[ed.head];
+    const mxp = (tail.x + head.x) / 2 + px * off * 1.6, myp = (tail.y + head.y) / 2 + py * off * 1.6;
+    const p0 = border(ed.tail, mxp, myp), p1 = border(ed.head, mxp, myp);
+    const st = edgeState(a, w, e).state, flow = edgeFlow(a, w, e), util = ed.u0 ? flow / ed.u0 : 0;
+    const sw = st === "grid" ? 1.4 : 1.4 + 5 * Math.sqrt(Math.min(1, util));
+    const dim = S.sel && !(selE === e || (S.sel.t === "node" && (ed.tail === S.sel.i || ed.head === S.sel.i)));
+    s += `<g class="edge ${st}${dim ? " dim" : ""}${selE === e ? " sel" : ""}" data-edge="${e}"><path class="hit" d="M${p0[0]},${p0[1]} Q${mxp},${myp} ${p1[0]},${p1[1]}"/>`;
+    s += `<path class="line" d="M${p0[0]},${p0[1]} Q${mxp},${myp} ${p1[0]},${p1[1]}" stroke-width="${sw}" marker-end="url(#${mx[st]})"/><title>${esc(ed.id)} · ${esc(ed.label)} (${esc(ed.kLabel)}, ${esc(ed.mode)})</title></g>`;
+    const bx = 0.25 * p0[0] + 0.5 * mxp + 0.25 * p1[0], by = 0.25 * p0[1] + 0.5 * myp + 0.25 * p1[1];
+    let txt = null;
+    if (S.label === "flow" && flow > 0) txt = num(flow);
+    else if (S.label === "util" && ed.u0) txt = Math.round(util * 100) + "%";
+    else if (S.label === "cap" && a.u[w][e] != null) txt = num(a.u[w][e]);
+    else if (S.label === "transit") { const t = edgeTransit(a, w, e); if (t > 0) txt = num(t); }
+    else if (S.label === "tariff") { const t = a.tariff[w].filter((p) => p[0] === e).map((p) => p[2]); if (t.length) txt = Math.round(Math.max(...t) * 100) + "%"; }
+    if (txt != null && st !== "grid") labels.push([bx, by, txt, e]);
+  });
+  labels.forEach(([x, y, t, e]) => { const wd = 8 + t.length * 6.4; s += `<g class="elabel" data-edge="${e}" style="cursor:pointer"><rect x="${x - wd / 2}" y="${y - 9}" width="${wd}" height="17" rx="5"/><text x="${x}" y="${y + 3.5}" text-anchor="middle">${esc(t)}</text></g>`; });
+  const stockMax = N.stockSlots.map((_, i) => Math.max(1, ...a.stock.map((r) => r[i] || 0)));
+  N.nodes.forEach((n, i) => {
+    const { x, y } = pos[i], { w: bw, h: bh, stocks } = boxes[i], sel = S.sel && S.sel.t === "node" && S.sel.i === i;
+    let cls = "node" + (sel ? " sel" : ""), sub = n.typeLabel;
+    if (n.type === "chokepoint") {
+      const o = chkOpen(a, w, i);
+      cls += " chk " + (o == null ? "" : o < 0.1 ? "bad" : o < 0.9 ? "warn" : "good");
+      sub = o == null ? "стан невідомий" : `відкрито ${pct(o, o < 0.1 ? 1 : 0)}`;
+    }
+    s += `<g class="${cls}" data-node="${i}"><rect class="card" x="${x - bw / 2}" y="${y - bh / 2}" width="${bw}" height="${bh}" rx="9"/>`;
+    s += `<rect class="band" x="${x - bw / 2 + 1}" y="${y - bh / 2 + 1}" width="5" height="${bh - 2}" rx="2.5" fill="${NODE_COL[n.type] || "var(--ink3)"}"/>`;
+    s += `<text class="nname" x="${x - bw / 2 + 14}" y="${y - bh / 2 + 17}">${esc(n.short)}</text><text class="nsub" x="${x - bw / 2 + 14}" y="${y - bh / 2 + 31}">${esc(sub)}</text>`;
+    stocks.forEach((st, j) => {
+      const v = a.stock[w][st.i], by = y - bh / 2 + 40 + j * 11 + (n.type === "chokepoint" ? 6 : 0), fw = (bw - 28) * Math.min(1, (v || 0) / stockMax[st.i]);
+      s += `<rect class="stockbar" x="${x - bw / 2 + 14}" y="${by}" width="${bw - 28}" height="6" rx="3"/><rect x="${x - bw / 2 + 14}" y="${by}" width="${fw}" height="6" rx="3" style="fill:${KCOL[st.k]}"/><title>Запас: ${esc(kName(st.k))}, ${num(v)}</title>`;
+    });
+    s += `<title>${esc(n.label)}</title></g>`;
+  });
+  $("#map").innerHTML = s;
+  $("#mapWeek").textContent = `· тиждень ${w + 1}`;
+}
+
+/* inspector */
+function kv(rows) { return `<dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`; }
+function weekDigest() {
+  const a = A(), w = S.w, evs = E().events.filter((e) => e.week === w + 1 && !(w === 0 && e.severity === "info"));
+  const blocked = N.edges.filter((_, e) => edgeState(a, w, e).state === "blocked").length;
+  const limited = N.edges.filter((_, e) => edgeState(a, w, e).state === "limited").length;
+  const cost = a.costs[w], nv = E().naive.costs[w];
+  const ob = N.chokepoints.map((c, i) => `${node(c).short}: ${pct(a.open[w][i], 1)}`).join(", ");
+  return `<h3>Тиждень ${w + 1}: коротко</h3>
+  <p class="hint" style="margin-top:6px">Клацніть вузол або маршрут на карті, щоб побачити всі його поля. Тут зведення для обраного тижня.</p>
+  ${kv([["Протока", ob || "—"], ["Закриті маршрути", `${blocked} із ${N.edges.length}`], ["Урізані маршрути", String(limited)], ["Витрати агента за тиждень", usd(sum(cost))], ["Витрати naive за тиждень", usd(sum(nv))], ["Недопоставлено ринку", num(a.lost[w][0])]])}
+  <h4>Що змінилося цього тижня</h4>
+  ${evs.length ? `<div class="evlist">${evs.map((e) => `<div class="ev" style="grid-template-columns:14px 1fr;cursor:default"><span class="sev ${e.severity}"></span><span class="tt">${esc(e.title)}</span></div>`).join("")}</div>` : '<p class="sm">Нових подій немає.</p>'}`;
+}
+function sparkRow(label, vals, o) { return `<div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><span class="sm">${label}</span><span style="flex:0 1 230px;min-width:0">${spark(vals, { ...o, cur: S.w })}</span></div>`; }
+function inspNode(i) {
+  const a = A(), w = S.w, n = node(i);
+  let h = `<h3>${esc(n.short)}</h3><div class="sm">${esc(n.label)} · ${esc(n.typeLabel)} · регіон: ${esc(n.region)}</div>`;
+  const stocks = N.stockSlots.map((s, j) => ({ ...s, j })).filter((s) => s.node === i);
+  if (stocks.length) {
+    h += `<h4>Запаси на складі ${code("stock.qty")}</h4>`;
+    stocks.forEach((s) => { h += `<div class="sm"><span class="dot" style="background:${KCOL[s.k]}"></span>${esc(kName(s.k))}: <b>${num(a.stock[w][s.j])}</b> ${esc(N.commodities[s.k].unit)}</div>` + sparkRow("динаміка", a.stock.map((r) => r[s.j]), { color: KCOL[s.k] }); });
+  }
+  const sup = N.supplySlots.map((s, j) => ({ ...s, j })).filter((s) => s.node === i);
+  sup.forEach((s) => { h += `<h4>Доступна поставка ${code("graph_now.supply.avail")}</h4>` + kv([[esc(kName(s.k)), num(a.supply[w][s.j])]]) + sparkRow("динаміка", a.supply.map((r) => r[s.j]), { color: KCOL[s.k] }); });
+  const fi = N.fabs.indexOf(i), gi = N.grids.indexOf(i), oi = N.osats.indexOf(i), ci = N.chokepoints.indexOf(i);
+  if (fi >= 0) h += `<h4>Стан фабрики</h4>` + kv([[`Ефективна потужність ${code("graph_now.fab.cap_eff")}`, num(a.fabCap[w][fi])], [`Коефіцієнт відновлення ${code("graph_now.fab.R")}`, num(a.fabR[w][fi])]]) + sparkRow("потужність", a.fabCap.map((r) => r[fi]), {});
+  if (gi >= 0) h += `<h4>Енергомережа</h4>` + kv([[`Доступна генерація ${code("graph_now.grid.G_bar")}`, num(a.gridG[w][gi])], [`Базове навантаження ${code("graph_now.grid.y_bar")}`, num(a.gridY[w][gi])], ["Недоподано минулого тижня", num(a.lastShed[w][gi])]]) + sparkRow("генерація", a.gridG.map((r) => r[gi]), { color: "var(--c3)" });
+  if (oi >= 0) h += `<h4>Пакування (OSAT)</h4>` + kv([[`Ефективна пропускна ${code("graph_now.osat.thr_eff")}`, num(a.osatThr[w][oi])], [`Коефіцієнт відновлення ${code("graph_now.osat.R")}`, num(a.osatR[w][oi])]]);
+  if (ci >= 0) {
+    const q = a.queue[w].filter((r) => r[1] === i);
+    h += `<h4>Протока ${code("graph_now.open")}</h4>` + kv([["Відкрито", pct(a.open[w][ci], 1)], [`Пропускна: наливні ${code("kappa.tb")}`, num(a.kappaTb[w][ci])], [`Пропускна: контейнери ${code("kappa.ct")}`, num(a.kappaCt[w][ci])], [`Клас воєнного ризику ${code("war_risk")}`, esc(D.warWarning[a.warRisk[w][ci]] ?? "—")], ["Вантажу в черзі", `${q.length} партій, ${num(sum(q.map((r) => r[3])))}`]]) + sparkRow("відкритість", a.open.map((r) => r[ci]), { color: "var(--bad)", min: 0, max: 1 });
+    const ce = a.closureEnd[w].filter((r) => r[0] === i);
+    if (ce.length) h += `<p class="sm">Оголошений кінець закриття: тиждень ${ce.map((r) => r[1]).join(", ")}.</p>`;
+  }
+  const sk = N.sinks.findIndex((s) => s.node === i);
+  if (sk >= 0) h += `<h4>Попит</h4>` + kv([[`Попит минулого тижня ${code("last_week.sinks.demand")}`, num(a.lastDemand[w][sk])], ["Задоволено", num(a.lastServed[w][sk])], ["Втрачено", num(a.lastLost[w][sk])], [`Штраф за одиницю дефіциту ${code("sinks.pi")}`, usd(N.sinks[sk].pi)]]) + sparkRow("попит (прогноз на 8 тижнів)", a.forecast[w], { cur: null });
+  const w2 = a.wip[w].filter((r) => r[0] === i);
+  if (w2.length) h += `<h4>У виробництві ${code("wip.qty")}</h4>` + kv(w2.map((r) => [`${esc(kName(r[1]))}, готово на тижні ${r[3]}`, num(r[2])]));
+  const touching = N.edges.map((e, k) => ({ e, k })).filter(({ e }) => e.tail === i || e.head === i);
+  h += `<h4>Маршрути цього вузла</h4><div class="linklist">${touching.map(({ e, k }) => { const st = STATE_TXT[edgeState(a, w, k).state]; return `<button data-edge="${k}"><span>${esc(e.label)} <span class="sm">${esc(e.kLabel)}</span></span><span class="pill ${st[0]}">${st[1]}</span></button>`; }).join("")}</div>`;
+  return h;
+}
+function inspEdge(e) {
+  const a = A(), w = S.w, ed = edge(e), { state, reasons } = edgeState(a, w, e), st = STATE_TXT[state];
+  const u = a.u[w][e], c = a.c[w][e], tau = a.tau[w][e], pro = edgeProhibited(a, w, e);
+  const tar = a.tariff[w].filter((p) => p[0] === e);
+  const flowReq = edgeFlow(a, w, e, "flows"), flowEx = edgeFlow(a, w, e, "exec");
+  let h = `<h3>${esc(ed.label)}</h3><div class="sm">${esc(ed.kLabel)} · ${esc(ed.mode)} · ${code(ed.id)} <span class="pill ${st[0]}" style="margin-left:6px">${st[1]}</span></div>`;
+  if (reasons.length) h += `<p class="note ${state === "blocked" ? "bad" : ""}" style="margin-top:10px">${esc(reasons.join("; "))}.</p>`;
+  h += kv([
+    [`Потужність за тиждень ${code("graph_now.u")}`, `${num(u)} <span class="na">з ${num(ed.u0)}</span>`],
+    [`Вартість за одиницю ${code("graph_now.c")}`, `${num(c)} <span class="na">норма ${num(ed.c0)}</span>`],
+    [`Час у дорозі, тижнів ${code("graph_now.tau")}`, `${num(tau)} <span class="na">норма ${num(ed.tau0)}</span>`],
+    [`Заборонені товари ${code("graph_now.prohibited")}`, pro.length ? pro.map((k) => `<span class="pill bad">${esc(kName(k))}</span>`).join(" ") : "немає"],
+    [`Мито ${code("graph_now.tariff")}`, tar.length ? tar.map((p) => `${esc(kName(p[1]))}: ${pct(p[2])}`).join(", ") : "немає"],
+    ["Агент запросив відправити", num(flowReq)],
+    ["Реально відправлено", num(flowEx)],
+    [`У дорозі зараз ${code("pipeline.qty")}`, num(edgeTransit(a, w, e))],
+  ]);
+  h += `<h4>Потужність і відправка по тижнях</h4>` + sparkRow("потужність", a.u.map((r) => r[e]), { color: "var(--ink3)", min: 0 }) + sparkRow("відправлено", a.exec.map((_, t) => edgeFlow(a, t, e)), { color: agentColor(S.agent), min: 0 });
+  const ships = a.pipeline[w].filter((r) => r[0] === e);
+  if (ships.length) h += `<h4>Партії в дорозі</h4><div class="tbl"><table><tr><th>Товар</th><th class="num">К-сть</th><th class="num">Прибуде</th></tr>${ships.map((r) => `<tr><td>${esc(kName(r[1]))}</td><td class="num">${num(r[2])}</td><td class="num">тиждень ${r[3]}</td></tr>`).join("")}</table></div>`;
+  h += `<h4>Вузли</h4><div class="linklist"><button data-node="${ed.tail}"><span>Звідки: ${esc(node(ed.tail).short)}</span></button><button data-node="${ed.head}"><span>Куди: ${esc(node(ed.head).short)}</span></button></div>`;
+  return h;
+}
+function drawInspector() {
+  $("#insp").innerHTML = (S.sel ? `<button class="btn" data-clear style="float:right">Зняти вибір</button>` : "") + (!S.sel ? weekDigest() : S.sel.t === "node" ? inspNode(S.sel.i) : inspEdge(S.sel.i));
+}
+
+/* tab: observation */
+function sec(title, sub, codes, inner, open = true) {
+  return `<details class="sec"${open ? " open" : ""}><summary>${title} <span class="sub">${sub}</span> ${codes ? code(...codes) : ""}</summary><div class="inner">${inner}</div></details>`;
+}
+function tabObs() {
+  const a = A(), w = S.w;
+  const rowsE = N.edges.map((ed, e) => {
+    const u = a.u[w][e], c = a.c[w][e], tau = a.tau[w][e], pro = edgeProhibited(a, w, e), tar = a.tariff[w].filter((p) => p[0] === e), { state } = edgeState(a, w, e);
+    const dev = state === "blocked" || state === "limited" || (c != null && ed.c0 != null && Math.abs(c - ed.c0) > 1e-6) || (tau != null && tau !== ed.tau0);
+    return { ed, e, u, c, tau, pro, tar, state, dev };
+  }).filter((r) => !S.onlyDev || r.dev);
+  const edgesTbl = `<label class="sm"><input type="checkbox" id="chkDev" ${S.onlyDev ? "checked" : ""}> показати лише маршрути, що відхиляються від норми</label>
+    <div class="tbl"><table><tr><th>Маршрут</th><th>Товар</th><th>Потужність</th><th class="num">Вартість</th><th class="num">Тижнів</th><th>Заборона</th><th class="num">Мито</th></tr>
+    ${rowsE.map((r) => `<tr class="click ${S.sel && S.sel.t === "edge" && S.sel.i === r.e ? "sel" : ""} ${r.state === "blocked" ? "bad" : r.dev ? "dev" : ""}" data-edge="${r.e}">
+      <td>${esc(r.ed.label)} <span class="sm">${esc(r.ed.mode)}</span> ${code(r.ed.id)}</td><td>${esc(r.ed.kLabel)}</td>
+      <td>${r.u == null ? NA : bar(r.u, r.ed.u0, r.u < r.ed.u0 * 0.97 ? "var(--warn)" : "")} <span class="sm">${num(r.u)} / ${num(r.ed.u0)}</span></td>
+      <td class="num">${num(r.c)}${r.c != null && r.ed.c0 != null && Math.abs(r.c - r.ed.c0) > 1e-6 ? ' <span class="pill warn">≠</span>' : ""}</td><td class="num">${num(r.tau)}</td>
+      <td>${r.pro.length ? r.pro.map((k) => `<span class="pill bad">${esc(kName(k))}</span>`).join(" ") : '<span class="na">нема</span>'}</td><td class="num">${r.tar.length ? pct(Math.max(...r.tar.map((p) => p[2]))) : '<span class="na">0</span>'}</td></tr>`).join("")}
+    </table></div>`;
+  const chk = N.chokepoints.map((c, i) => `<div class="kpi"><div class="l">${esc(node(c).short)}: відкрито ${code("graph_now.open")}</div><div class="v">${pct(a.open[w][i], 1)}</div><div class="l">воєнний ризик: ${esc(D.warWarning[a.warRisk[w][i]] ?? "—")} · наливні ${num(a.kappaTb[w][i])} · контейнери ${num(a.kappaCt[w][i])}</div></div>`).join("");
+  const ce = a.closureEnd[w].map((r) => `протока «${esc(node(r[0]).short)}» закрита, кінець оголошено на тижні ${r[1] ?? "?"}`);
+  const sec1 = sec("Мережа цього тижня", "потужності, ціни, заборони, мита та протока", ["graph_now.*", "action_mask"], `<p class="hint">Це «карта доріг на сьогодні». Агент бачить, які маршрути працюють і що вони коштують. Рядки з жовтою або червоною смугою відхиляються від норми.</p><div class="kpis">${chk}</div>${ce.length ? `<p class="note bad">${ce.join("; ")}</p>` : ""}${edgesTbl}`);
+  const stockRows = N.stockSlots.map((s, j) => { const mx = Math.max(1, ...a.stock.map((r) => r[j] || 0)); return `<tr class="click" data-node="${s.node}"><td>${esc(node(s.node).short)}</td><td><span class="dot" style="background:${KCOL[s.k]}"></span>${esc(kName(s.k))}</td><td>${bar(a.stock[w][j], mx, KCOL[s.k])}</td><td class="num">${num(a.stock[w][j])}</td><td>${spark(a.stock.map((r) => r[j]), { w: 120, h: 22, cur: w, color: KCOL[s.k] })}</td></tr>`; }).join("");
+  const transit = a.pipeline[w].map((r) => `<tr class="click" data-edge="${r[0]}"><td>${esc(edge(r[0]).label)}</td><td>${esc(kName(r[1]))}</td><td class="num">${num(r[2])}</td><td class="num">тиждень ${r[3]}${r[3] > w + 1 ? ` <span class="na">(за ${r[3] - w - 1})</span>` : ""}</td></tr>`).join("");
+  const queue = a.queue[w].map((r) => `<tr><td>${esc(node(r[1]).short)}</td><td>${esc(kName(r[2]))}</td><td class="num">${num(r[3])}</td><td class="num">${r[6]}</td><td>${r[4] != null && N.slots.find((s) => s.lane === r[4]) ? esc(N.slots.find((s) => s.lane === r[4]).route) : "—"}</td></tr>`).join("");
+  const wip = a.wip[w].map((r) => `<tr class="click" data-node="${r[0]}"><td>${esc(node(r[0]).short)}</td><td>${esc(kName(r[1]))}</td><td class="num">${num(r[2])}</td><td class="num">${r[3]}</td></tr>`).join("");
+  const sec2 = sec("Запаси та вантаж", "що лежить на складах і що їде", ["stock.qty", "pipeline.*", "queue_lots.*", "wip.*"],
+    `<p class="hint">Агент бачить власні запаси, вантаж у дорозі, партії в черзі біля протоки та напівфабрикати на виробництві. Усе це стан на кінець минулого тижня.</p>
+    <div class="tbl"><table><tr><th>Вузол</th><th>Товар</th><th>Запас</th><th class="num"></th><th>Динаміка</th></tr>${stockRows}</table></div>
+    <h4 class="lbl" style="margin-top:12px">У дорозі ${code("pipeline.*")}</h4>${transit ? `<div class="tbl"><table><tr><th>Маршрут</th><th>Товар</th><th class="num">К-сть</th><th class="num">Прибуде</th></tr>${transit}</table></div>` : '<p class="sm">Нічого.</p>'}
+    <h4 class="lbl" style="margin-top:12px">У черзі біля протоки ${code("queue_lots.*")}</h4>${queue ? `<div class="tbl"><table><tr><th>Де</th><th>Товар</th><th class="num">К-сть</th><th class="num">З тижня</th><th>Маршрут</th></tr>${queue}</table></div>` : '<p class="sm">Черги немає.</p>'}
+    <h4 class="lbl" style="margin-top:12px">У виробництві ${code("wip.*")}</h4>${wip ? `<div class="tbl"><table><tr><th>Вузол</th><th>Виробляє</th><th class="num">К-сть</th><th class="num">Буде готово</th></tr>${wip}</table></div>` : '<p class="sm">Нічого.</p>'}`);
+  const prodRows = [];
+  N.fabs.forEach((f, i) => prodRows.push(`<tr class="click" data-node="${f}"><td>${esc(node(f).short)}</td><td>фабрика</td><td>${bar(a.fabCap[w][i], Math.max(1, ...a.fabCap.map((r) => r[i])), "var(--k3)")}</td><td class="num">${num(a.fabCap[w][i])}</td><td class="sm">відновлення ${num(a.fabR[w][i])}</td></tr>`));
+  N.grids.forEach((g, i) => prodRows.push(`<tr class="click" data-node="${g}"><td>${esc(node(g).short)}</td><td>генерація енергомережі</td><td>${bar(a.gridG[w][i], Math.max(1, ...a.gridG.map((r) => r[i])), "var(--c3)")}</td><td class="num">${num(a.gridG[w][i])}</td><td class="sm">навантаження ${num(a.gridY[w][i])}</td></tr>`));
+  N.osats.forEach((o, i) => prodRows.push(`<tr class="click" data-node="${o}"><td>${esc(node(o).short)}</td><td>пакування</td><td>${bar(a.osatThr[w][i], Math.max(1, ...a.osatThr.map((r) => r[i])), "var(--k2)")}</td><td class="num">${num(a.osatThr[w][i])}</td><td class="sm">відновлення ${num(a.osatR[w][i])}</td></tr>`));
+  N.supplySlots.forEach((s, i) => prodRows.push(`<tr class="click" data-node="${s.node}"><td>${esc(node(s.node).short)}</td><td>доступна поставка: ${esc(kName(s.k))}</td><td>${bar(a.supply[w][i], Math.max(1, ...a.supply.map((r) => r[i])), KCOL[s.k])}</td><td class="num">${num(a.supply[w][i])}</td><td></td></tr>`));
+  const sec3 = sec("Виробництво, енергія, постачання", "потужності вузлів цього тижня", ["graph_now.fab.*", "graph_now.grid.*", "graph_now.osat.*", "graph_now.supply.avail"], `<div class="tbl"><table><tr><th>Вузол</th><th>Що це</th><th>Рівень</th><th class="num">Значення</th><th></th></tr>${prodRows.join("")}</table></div>`, false);
+  const fc = a.forecast[w], fmax = niceMax(Math.max(...fc, a.demand[w][0] || 0, 1));
+  const sec4 = sec("Попит і прогноз", "скільки чекає ринок", ["demand_forecast.qty", "backlog.qty", "last_week.sinks.*"],
+    `<p class="hint">Прогноз попиту на 8 тижнів уперед і підсумок минулого тижня. Недопоставлений попит штрафується.</p>
+    <div class="two"><div><div class="lbl">Прогноз на тижні ${w + 1} … ${w + fc.length}</div>${barChart(fc.map((v, i) => ({ v, l: String(w + 1 + i) })), fmax, "var(--c5)")}</div>
+    <div>${kv([["Попит минулого тижня", num(a.lastDemand[w][0])], ["Задоволено", num(a.lastServed[w][0])], ["Втрачено", num(a.lastLost[w][0])], ["Накопичений борг", num(a.backlog[w][0])]])}</div></div>`);
+  const wu = N.warningUnits.map((l, i) => ({ l, v: a.warning[w][i], i, chk: l.startsWith("протока") }));
+  wu.sort((p, q) => (q.chk - p.chk) || (Math.abs(q.v ?? 0) - Math.abs(p.v ?? 0)));
+  const warnRows = wu.map((r) => `<tr class="${r.chk ? "dev" : ""}"><td>${esc(r.l)}</td><td>${warnBar(r.v)}</td><td class="num">${num(r.v, 2)}</td></tr>`).join("");
+  const msgs = a.messages[w].map((m) => `<tr><td class="num">${m.announced}</td><td>${m.chokepointThreat ? '<span class="pill bad">протока</span> ' : ""}${esc(m.text)}</td><td class="num">${m.effective ? m.effective : '<span class="na">не вказано</span>'}</td></tr>`).join("");
+  const pend = a.pending[w].map((r) => `<tr class="click" data-edge="${r[0]}"><td>${esc(edge(r[0]).label)}</td><td>${esc(kName(r[1]))}</td><td class="num">${r[2]}</td></tr>`).join("");
+  const sec5 = sec("Ризики наперед: сигнали та оголошення", "зашумлені попередження, не гарантії", ["warning.score", "messages.*", "pending_prohibitions.*"],
+    `<p class="hint">Це єдине, що вказує на майбутнє. Оцінка тривоги шумна: частина тривог хибні. Додатне значення означає вищий ризик.</p>
+    <div class="two"><div><div class="lbl">Оцінка тривоги ${code("warning.score")}</div><div class="tbl"><table>${warnRows}</table></div></div>
+    <div><div class="lbl">Оголошення, що діють зараз ${code("messages.*")}</div>${msgs ? `<div class="tbl"><table><tr><th class="num">Тиждень</th><th>Повідомлення</th><th class="num">Діє з</th></tr>${msgs}</table></div>` : '<p class="sm">Активних оголошень немає.</p>'}
+    <div class="lbl" style="margin-top:12px">Заборони, що вже оголошені ${code("pending_prohibitions.*")}</div>${pend ? `<div class="tbl"><table><tr><th>Маршрут</th><th>Товар</th><th class="num">Набуде чинності</th></tr>${pend}</table></div>` : '<p class="sm">Немає.</p>'}</div></div>`);
+  const lastc = a.lastCosts[w], lr = a.lastReq[w], le = a.lastExec[w];
+  const sec6 = sec("Підсумок минулого тижня", "що агент накоїв і що з цього вийшло", ["last_week.*"],
+    w === 0 ? '<p class="sm">Перший тиждень: минулого тижня ще немає.</p>' : `<div class="two"><div><div class="lbl">Витрати за компонентами ${code("last_week.cost_components")}</div>${kv(N.costs.map((c, i) => [`<span class="dot" style="background:${CCOL[i]}"></span>${esc(c.label)}`, usd(lastc[i])]))}</div>
+    <div><div class="lbl">Запит проти виконаного ${code("last_week.clip.*")}</div>${kv([["Запитано всього", num(sum(lr))], ["Виконано всього", num(sum(le))], ["Обрізано потужністю", num(sum(lr) - sum(le))]])}</div></div>`, false);
+  return `<p class="note">Тиждень ${w + 1}. Усе нижче агент бачить у <code class="fld">observation</code> перед тим, як вирішити, що відправляти. Це стан на кінець попереднього тижня.</p>${sec1}${sec2}${sec3}${sec4}${sec5}${sec6}`;
+}
+function warnBar(v) {
+  if (v == null) return NA;
+  const m = 3, f = Math.max(-1, Math.min(1, v / m)), col = v > 0.9 ? "var(--bad)" : v < -0.9 ? "var(--ok)" : "var(--ink3)";
+  return `<span class="bar wide" style="overflow:visible"><b style="left:50%"></b><i style="position:absolute;top:0;${f >= 0 ? `left:50%;width:${f * 50}%` : `right:50%;width:${-f * 50}%`};background:${col}"></i></span>`;
+}
+function barChart(items, max, color) {
+  const W = 360, H = 120, L = 30, B = 18, bw = (W - L) / items.length;
+  let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" style="max-width:420px"><g class="grid"><line x1="${L}" x2="${W}" y1="${H - B}" y2="${H - B}"/><line x1="${L}" x2="${W}" y1="6" y2="6"/></g><text x="${L - 4}" y="10" text-anchor="end">${num(max, 0)}</text><text x="${L - 4}" y="${H - B}" text-anchor="end">0</text>`;
+  items.forEach((it, i) => { const h = (it.v / max) * (H - B - 6), x = L + i * bw; s += `<rect x="${x + 4}" y="${H - B - h}" width="${bw - 8}" height="${h}" rx="2" style="fill:${color}"><title>тиждень ${it.l}: ${num(it.v)}</title></rect><text x="${x + bw / 2}" y="${H - 4}" text-anchor="middle">${it.l}</text>`; });
+  return s + "</svg>";
+}
+
+/* tab: action */
+function slotCap(a, w, sl) { const us = sl.laneEdges.map((e) => a.u[w][e]).filter((u) => u != null); return us.length ? Math.min(...us) : null; }
+function tabAct() {
+  const a = A(), w = S.w;
+  const maxSlot = N.slots.map((sl, i) => Math.max(1e-9, ...AGENTS.flatMap((k) => E().agents[k].flows.map((r) => r[i] || 0)), sl.u0 || 0));
+  const rows = N.slots.map((sl, i) => {
+    const mask = a.mask[w][i] === 1, cap = slotCap(a, w, sl), req = a.flows[w][i], ex = a.exec[w][i], cut = req - ex;
+    const cell = S.compare ? AGENTS.map((k) => { const v = E().agents[k].flows[w][i]; return `<div style="display:flex;gap:6px;align-items:center">${bar(v, maxSlot[i], agentColor(k))}<span class="sm">${num(v)}</span></div>`; }).join("")
+      : `<div style="display:flex;gap:6px;align-items:center">${bar(req, maxSlot[i], agentColor(S.agent), "", true)}<b>${num(req)}</b></div>`;
+    return `<tr class="click ${!mask && req > 0 ? "bad" : ""}" data-edge="${sl.edge}"><td class="num">${i}</td>
+      <td>${esc(sl.label)}${sl.route ? `<div class="sm">маршрут через протоку: ${esc(sl.route)} ${code("L" + sl.lane)}</div>` : ""}</td>
+      <td>${mask ? '<span class="pill ok">дозволено</span>' : '<span class="pill bad">заборона</span>'}</td>
+      <td>${cap == null ? NA : `${num(cap)} <span class="na">з ${num(sl.u0)}</span>`}</td><td>${cell}</td>
+      <td class="num">${S.compare ? "" : num(ex)}</td><td class="num">${S.compare ? "" : cut > 1e-6 ? `<span class="pill warn">−${num(cut)}</span>` : '<span class="na">0</span>'}</td></tr>`;
+  }).join("");
+  const perK = N.commodities.map((c, k) => { const idx = N.slots.map((sl, i) => (sl.k === k ? i : -1)).filter((i) => i >= 0); return [c, sum(idx.map((i) => a.flows[w][i])), sum(idx.map((i) => a.exec[w][i]))]; }).filter(([, r]) => r > 0 || true);
+  const ovr = N.override.map((o, i) => `<tr><td class="num">${i}</td><td>${esc(o.label)}</td><td>${a.overrideMask[w][i] ? '<span class="pill ok">дозволено</span>' : '<span class="pill bad">заборона</span>'}</td><td class="num">${num(a.overrideQty[w][i])}</td></tr>`).join("");
+  const RM = ["0: випуск за замовчуванням", "1: випустити вручну (override)", "2: тримати в черзі"];
+  const rel = N.releasePairs.map((p, i) => `<tr><td>${esc(node(p.node).short)}: ${esc(kName(p.k))}</td><td><span class="pill ${a.releaseMode[w][i] ? "info" : "mute"}">${RM[a.releaseMode[w][i]]}</span></td></tr>`).join("");
+  return `<p class="note">Тиждень ${w + 1}. Агент повертає словник дій <code class="fld">{"flows": …, "override_qty": …, "release_mode": …}</code>. Нижче той самий вибір, розписаний словами.</p>
+  <details class="sec" open><summary>Скільки відправити по кожному маршруту <span class="sub">20 «слотів»: маршрут і товар</span> ${code("flows")}</summary><div class="inner">
+    <p class="hint">Один слот означає «скільки одиниць цього товару відправити цим маршрутом цього тижня». Агент може просити більше за потужність, тоді надлишок обрізається (колонка «Обрізано»). Слот із забороною не можна використовувати: вантаж буде втрачено.</p>
+    <label class="sm"><input type="checkbox" id="chkCmp" ${S.compare ? "checked" : ""}> порівняти всіх агентів на цьому тижні</label>
+    ${S.compare ? `<div class="seg" style="margin:6px 0">${AGENTS.map((k) => `<span class="sm"><span class="dot" style="background:${agentColor(k)}"></span>${esc(E().agents[k].label)}</span>`).join(" ")}</div>` : ""}
+    <div class="tbl"><table><tr><th class="num">№</th><th>Маршрут і товар</th><th>Маска ${code("action_mask")}</th><th>Потужність зараз</th><th>${S.compare ? "Запит кожного агента" : "Запит агента"}</th><th class="num">${S.compare ? "" : "Виконано"}</th><th class="num">${S.compare ? "" : "Обрізано"}</th></tr>${rows}</table></div>
+    <div class="kpis" style="margin-top:12px">${perK.map(([c, r, x], k) => `<div class="kpi"><div class="l"><span class="dot" style="background:${KCOL[k]}"></span>${esc(c.label)}</div><div class="v">${num(x)}</div><div class="l">запитано ${num(r)} · одиниці: ${esc(c.unit)}</div></div>`).join("")}</div></div></details>
+  <details class="sec"><summary>Керування чергою біля протоки <span class="sub">додаткові поля дії</span> ${code("override_qty", "release_mode")}</summary><div class="inner">
+    <p class="hint">Це необов'язкова частина. Наливні вантажі (газ) застрягають у черзі біля протоки. Агент може лишити стандартний випуск, випустити задану кількість вручну або тримати вантаж у черзі.</p>
+    <div class="tbl"><table><tr><th>Пара «вузол: товар»</th><th>Режим випуску ${code("release_mode")}</th></tr>${rel}</table></div>
+    <div class="tbl" style="margin-top:8px"><table><tr><th class="num">№</th><th>Слот ручного випуску</th><th>Маска ${code("override_mask")}</th><th class="num">К-сть ${code("override_qty")}</th></tr>${ovr}</table></div></div></details>`;
+}
+
+/* tab: results */
+function stackChart(a, w) {
+  const W = 860, H = 280, L = 56, R = 8, top = 10, B = 24, bw = (W - L - R) / T;
+  const tot = costTotals(a), max = niceMax(Math.max(...tot));
+  const y = (v) => H - B - (v / max) * (H - B - top);
+  let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Витрати по компонентах"><g class="grid">`;
+  for (let i = 0; i <= 4; i++) { const v = (max * i) / 4; s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${usd(v)}</text>`; }
+  s += "</g>";
+  a.costs.forEach((row, t) => {
+    let acc = 0; const x = L + t * bw;
+    s += `<g data-week="${t}" style="cursor:pointer"><rect x="${x}" y="${top}" width="${bw}" height="${H - B - top}" fill="${t === w ? "var(--accent-soft)" : "transparent"}"/>`;
+    row.forEach((v, i) => { if (v <= 0) return; const y0 = y(acc + v), y1 = y(acc); acc += v; s += `<rect x="${x + 2}" y="${y0}" width="${bw - 4}" height="${Math.max(0, y1 - y0)}" style="fill:${CCOL[i]}"><title>Тиждень ${t + 1}, ${esc(N.costs[i].label)}: ${usd(v)}</title></rect>`; });
+    s += "</g>";
+    if ((t + 1) % 2 === 1) s += `<text x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${t + 1}</text>`;
+  });
+  const naive = E().naive.costs.map(sum);
+  s += `<path d="${naive.map((v, i) => `${i ? "L" : "M"}${(L + i * bw + bw / 2).toFixed(1)},${y(v).toFixed(1)}`).join("")}" fill="none" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="4 3"/></svg>`;
+  return s;
+}
+function cumChart(w) {
+  const W = 860, H = 260, L = 56, R = 70, top = 12, B = 24;
+  const series = AGENTS.map((k) => ({ k, label: E().agents[k].label, v: cumsum(costTotals(E().agents[k])), col: agentColor(k) }));
+  series.push({ k: "naive", label: "Naive (норма)", v: cumsum(E().naive.costs.map(sum)), col: "var(--naive)", dash: true });
+  const max = niceMax(Math.max(...series.map((s) => s.v[T - 1]))), x = (i) => L + (i / (T - 1)) * (W - L - R), y = (v) => H - B - (v / max) * (H - B - top);
+  let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Накопичені витрати"><g class="grid">`;
+  for (let i = 0; i <= 4; i++) { const v = (max * i) / 4; s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${usd(v)}</text>`; }
+  s += `</g><line x1="${x(w)}" x2="${x(w)}" y1="${top}" y2="${H - B}" stroke="var(--ink3)" stroke-dasharray="3 3"/>`;
+  [0, 4, 9, 14, 19, 24].filter((i) => i < T).concat([T - 1]).forEach((i) => (s += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${i + 1}</text>`));
+  const ends = [];
+  series.forEach((sr) => {
+    s += `<path d="${sr.v.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("")}" fill="none" stroke="${sr.col}" stroke-width="${sr.k === S.agent ? 3 : 1.8}" ${sr.dash ? 'stroke-dasharray="5 4"' : ""}/>`;
+    ends.push([y(sr.v[T - 1]), sr]);
+  });
+  ends.sort((p, q) => p[0] - q[0]);
+  let last = -99;
+  ends.forEach(([yy, sr]) => { const ty = Math.max(yy, last + 13); last = ty; s += `<text x="${W - R + 6}" y="${ty + 4}" style="fill:${sr.col};font-weight:600">${esc(sr.label.length > 12 ? sr.label.slice(0, 11) + "…" : sr.label)}</text>`; });
+  return s + "</svg>";
+}
+function tabRes() {
+  const a = A(), w = S.w, naiveJ = E().naive.J;
+  const cmp = AGENTS.map((k) => { const g = E().agents[k], saved = naiveJ - g.J; return `<tr class="click ${k === S.agent ? "sel" : ""}" data-pick="${esc(k)}"><td><span class="dot" style="background:${agentColor(k)}"></span>${esc(g.label)}</td><td class="num">${usd(g.J)}</td><td class="num">${saved >= 0 ? `<span class="pill ok">дешевше на ${usd(saved)} (${pct(saved / naiveJ, 1)})</span>` : `<span class="pill bad">дорожче на ${usd(-saved)} (${pct(-saved / naiveJ, 1)})</span>`}</td></tr>`; }).join("");
+  const tw = a.costs[w], nw = E().naive.costs[w];
+  const rows = N.costs.map((c, i) => `<tr><td><span class="dot" style="background:${CCOL[i]}"></span>${esc(c.label)}<div class="sm">${esc(c.hint)}</div></td><td class="num">${usd(tw[i])}</td><td class="num">${usd(nw[i])}</td></tr>`).join("");
+  const totals = N.costs.map((c, i) => sum(a.costs.map((r) => r[i])));
+  const trows = N.costs.map((c, i) => `<tr><td><span class="dot" style="background:${CCOL[i]}"></span>${esc(c.label)}</td><td class="num">${usd(totals[i])}</td><td>${bar(totals[i], Math.max(...totals), CCOL[i], "", true)}</td></tr>`).join("");
+  return `<p class="note">Агент платить гроші за все: перевезення, мита, склад, простій у черзі та штрафи за дефіцит. Менше означає краще. Нуль на шкалі оцінки RSS відповідає naive-правилу, одиниця відповідає ідеальному плану, який знав усі шоки.</p>
+  <div class="kpis"><div class="kpi"><div class="l">Витрати за епізод (${esc(a.label)})</div><div class="v">${usd(a.J)}</div><div class="l">після кредиту за залишки ${usd(a.salvage)}</div></div>
+  <div class="kpi"><div class="l">Naive-правило (норма)</div><div class="v">${usd(naiveJ)}</div><div class="l">${D.quick ? "швидка оцінка, не як на борді" : "оцінка як на борді"}</div></div>
+  <div class="kpi"><div class="l">Різниця з naive</div><div class="v" style="color:${a.J <= naiveJ ? "var(--ok)" : "var(--bad)"}">${a.J <= naiveJ ? "−" : "+"}${usd(Math.abs(naiveJ - a.J))}</div><div class="l">${pct(Math.abs(naiveJ - a.J) / naiveJ, 1)} від naive</div></div>
+  <div class="kpi"><div class="l">Недопоставлено за епізод</div><div class="v">${num(sum(a.lost.map((r) => r[0])))}</div><div class="l">одиниць попиту</div></div></div>
+  <div class="two"><div><div class="lbl">Усі агенти на цьому епізоді (клац, щоб обрати)</div><div class="tbl"><table><tr><th>Агент</th><th class="num">Витрати</th><th class="num">Проти naive</th></tr>${cmp}</table></div></div>
+  <div><div class="lbl">Витрати агента за епізод по компонентах</div><div class="tbl"><table>${trows}</table></div></div></div>
+  <h4 class="lbl" style="margin-top:16px">Витрати по тижнях і компонентах ${code("costs")} (штрих: naive)</h4>${stackChart(a, w)}
+  <div class="seg" style="margin:4px 0 14px">${N.costs.map((c, i) => `<span class="sm" title="${esc(c.hint)}"><span class="dot" style="background:${CCOL[i]}"></span>${esc(c.label)}</span>`).join(" ")}</div>
+  <h4 class="lbl">Накопичені витрати</h4>${cumChart(w)}
+  <h4 class="lbl" style="margin-top:16px">Тиждень ${w + 1}: агент і naive</h4><div class="tbl"><table><tr><th>Компонент</th><th class="num">Агент</th><th class="num">Naive</th></tr>${rows}<tr><td><b>Разом</b></td><td class="num"><b>${usd(sum(tw))}</b></td><td class="num"><b>${usd(sum(nw))}</b></td></tr></table></div>`;
+}
+
+/* tab: events */
+function warnChart(a, w) {
+  const W = 860, H = 240, L = 44, R = 12, top = 8, split = 130, B = 22, bw = (W - L - R) / (T - 1), x = (i) => L + i * bw;
+  const ci = N.warningUnits.length - 1, ym = (v) => 8 + (1 - (v + 3) / 6) * (split - 16), yo = (v) => H - B - v * (H - B - split - 12);
+  let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Тривога проти закриття протоки"><g class="grid"><line x1="${L}" x2="${W - R}" y1="${ym(0)}" y2="${ym(0)}"/></g>`;
+  s += `<text x="${L - 6}" y="${ym(2) + 4}" text-anchor="end">+2</text><text x="${L - 6}" y="${ym(0) + 4}" text-anchor="end">0</text><text x="${L - 6}" y="${ym(-2) + 4}" text-anchor="end">−2</text>`;
+  for (let u = 0; u < ci; u++) s += `<path d="${a.warning.map((r, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${ym(r[u] ?? 0).toFixed(1)}`).join("")}" fill="none" stroke="var(--ink3)" stroke-width="1" opacity="0.35"/>`;
+  s += `<path d="${a.warning.map((r, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${ym(r[ci] ?? 0).toFixed(1)}`).join("")}" fill="none" stroke="var(--accent)" stroke-width="2.6"/>`;
+  const seen = new Set();
+  a.messages.forEach((ms) => ms.forEach((m) => { if (m.chokepointThreat && !seen.has(m.id)) { seen.add(m.id); const i = m.announced - 1; if (i >= 0 && i < T) s += `<path d="M${x(i)},${ym(2.9)} l-5,-9 h10z" transform="translate(0,12)" fill="var(--bad)"><title>Тиждень ${m.announced}: оголошено загрозу навколо протоки</title></path>`; } }));
+  const o = a.open.map((r) => r[0] ?? 0);
+  s += `<path d="M${x(0)},${yo(0)} ${o.map((v, i) => `L${x(i)},${yo(v)}`).join(" ")} L${x(T - 1)},${yo(0)}z" fill="var(--bad)" opacity="0.18"/><path d="${o.map((v, i) => `${i ? "L" : "M"}${x(i)},${yo(v)}`).join("")}" fill="none" stroke="var(--bad)" stroke-width="2"/>`;
+  s += `<text x="${L - 6}" y="${yo(1) + 4}" text-anchor="end">100%</text><text x="${L - 6}" y="${yo(0) + 4}" text-anchor="end">0%</text><line x1="${x(w)}" x2="${x(w)}" y1="${top}" y2="${H - B}" stroke="var(--ink3)" stroke-dasharray="3 3"/>`;
+  for (let i = 0; i < T; i += 5) s += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${i + 1}</text>`;
+  s += `<text x="${L + 4}" y="${split + 6}">відкритість протоки</text></svg>`;
+  return s;
+}
+function tabEv() {
+  const a = A(), w = S.w, evs = E().events.filter((e) => S.filt[e.severity] && (e.week > 1 || e.severity !== "info"));
+  const cw = firstClosure(a), th = [];
+  a.messages.forEach((ms, i) => ms.forEach((m) => { if (m.chokepointThreat && !th.some((x) => x.id === m.id)) th.push({ id: m.id, w: m.announced }); }));
+  let story = "";
+  if (cw >= 0) {
+    const early = th.filter((t) => t.w <= cw + 1).sort((p, q) => p.w - q.w);
+    story = `<p class="note bad"><b>Сюжет епізоду.</b> На тижні ${cw + 1} протока закрилася до ${pct(Math.min(...a.open[cw]), 1)} від норми.${early.length ? ` Першу ознаку загрози навколо протоки опубліковано на тижні ${early[0].w}, тобто за ${cw + 1 - early[0].w} тиж. до закриття.` : " Прямого оголошення загрози перед цим не було."} Синя лінія нижче показує, чи допомагала шумна оцінка тривоги.</p>`;
+  } else story = `<p class="note">У цьому епізоді протока не закривається нижче 50%.</p>`;
+  const byWeek = {};
+  evs.forEach((e) => (byWeek[e.week] ||= []).push(e));
+  const list = Object.keys(byWeek).map(Number).sort((p, q) => p - q).map((wk) => byWeek[wk].map((e, i) => `<button class="ev ${wk === w + 1 ? "now" : ""}" data-week="${wk - 1}"><span class="w">${i === 0 ? "Тиж. " + wk : ""}</span><span class="tt"><span class="sev ${e.severity}"></span>${esc(e.title)}</span></button>`).join("")).join("");
+  const init = E().events.filter((e) => e.week === 1 && e.severity === "info").length;
+  return `${story}<div class="two"><div><h4 class="lbl">Оцінка тривоги для протоки (синя) і її реальна відкритість (червона) ${code("warning.score", "graph_now.open")}</h4>${warnChart(a, w)}
+    <p class="sm">Сірі тонкі лінії: тривога для інших регіонів і пар. Червоні трикутники: оголошені загрози навколо протоки ${code("messages.channel = 5")}.</p></div>
+    <div><div class="seg" style="margin-bottom:8px">${[["bad", "Серйозні"], ["warn", "Попередження"], ["info", "Мита й повідомлення"]].map(([k, l]) => `<button data-filt="${k}" aria-pressed="${S.filt[k]}"><span class="sev ${k}" style="margin:0"></span>${l}</button>`).join("")}</div>
+    <div class="evlist" style="max-height:420px;overflow:auto">${list || '<p class="sm">Подій немає.</p>'}</div>
+    <p class="sm">На першому тижні вже діють ${init} початкових мит і повідомлень (їх приховано).</p></div></div>`;
+}
+
+/* tab: glossary */
+const GLOSS = [
+  ["Спостереження: мережа цього тижня", null],
+  ["graph_now.u", "Потужність маршруту", "Скільки максимум можна відправити маршрутом цього тижня. Може впасти нижче норми.", "observation"],
+  ["graph_now.c", "Вартість перевезення", "Ціна за одиницю товару на маршруті цього тижня.", "observation"],
+  ["graph_now.tau", "Час у дорозі", "За скільки тижнів вантаж дійде.", "observation"],
+  ["graph_now.prohibited", "Заборони", "Пари «маршрут і товар», на які діють санкції чи експортні обмеження.", "observation"],
+  ["graph_now.tariff", "Мита", "Ставка мита на пару «маршрут і товар».", "observation"],
+  ["graph_now.open", "Відкритість протоки", "1 означає повністю відкрита, 0 закрита.", "observation"],
+  ["graph_now.kappa.tb / .ct", "Пропускна здатність протоки", "Для наливних і для контейнерних вантажів окремо.", "observation"],
+  ["graph_now.war_risk", "Клас воєнного ризику", "0 немає, 1 Червоне море, 2 Ормуз 2026. Дорожчає страхування.", "observation"],
+  ["action_mask", "Маска дозволених слотів", "1 там, де жоден маршрут слота не під забороною. Потужність і закриття тут не враховані.", "observation"],
+  ["slot_mask", "Маска заборон", "Обернена до action_mask.", "observation"],
+  ["Спостереження: запаси та вантаж", null],
+  ["stock.qty", "Запаси", "Скільки товару лежить у кожному вузлі.", "observation"],
+  ["backlog.qty", "Накопичений борг", "Невдоволений попит, який переноситься на наступні тижні.", "observation"],
+  ["pipeline.*", "Вантаж у дорозі", "Партії, що вже їдуть: маршрут, товар, кількість, тиждень прибуття.", "observation"],
+  ["queue_lots.*", "Черга біля протоки", "Партії, що чекають проходження протоки.", "observation"],
+  ["wip.*", "Виробництво в процесі", "Напівфабрикати на фабриках і в OSAT, тиждень готовності.", "observation"],
+  ["graph_now.supply.avail", "Доступна поставка", "Скільки товару може дати джерело цього тижня.", "observation"],
+  ["graph_now.fab.cap_eff / .R / .alpha_bar", "Стан фабрики", "Ефективна потужність, коефіцієнт відновлення, множник живлення.", "observation"],
+  ["graph_now.grid.G_bar / .y_bar", "Енергомережа", "Доступна генерація та базове навантаження. Нестача спричиняє відключення.", "observation"],
+  ["graph_now.osat.R / .thr_eff", "Пакування (OSAT)", "Коефіцієнт відновлення та ефективна пропускна.", "observation"],
+  ["Спостереження: попит і ризики", null],
+  ["demand_forecast.qty", "Прогноз попиту", "Очікуваний попит на 8 тижнів уперед.", "observation"],
+  ["warning.score", "Оцінка тривоги", "Зашумлений сигнал ризику по регіонах, парах суперників і протоках. Частина тривог хибні.", "observation"],
+  ["messages.*", "Оголошення", "Тарифні пропозиції, фінальні попередження, загрози, санкції.", "observation"],
+  ["pending_prohibitions.*", "Заборони, що ще не діють", "Оголошені заборони з тижнем набуття чинності.", "observation"],
+  ["closure_end.*", "Кінець закриття", "Оголошений тиждень завершення закриття протоки, якщо відомий.", "observation"],
+  ["last_week.*", "Підсумок минулого тижня", "Запит і виконання, витрати, попит, відключення енергії.", "observation"],
+  ["Дія агента", null],
+  ["flows", "Обсяги відправки", "Скільки відправити по кожному слоту (маршрут і товар). Нуль означає нічого не слати.", "action"],
+  ["override_qty", "Ручний випуск з черги", "Скільки наливного вантажу випустити з черги протоки, коли режим 1.", "action"],
+  ["release_mode", "Режим випуску", "0 за замовчуванням, 1 вручну, 2 тримати вантаж у черзі.", "action"],
+  ["Результат", null],
+  ["costs", "Компоненти витрат", "Перевезення, воєнний ризик, мита, зберігання, черга, дефіцит, утилізація, відключення.", "result"],
+  ["RSS", "Оцінка", "0 відповідає naive-правилу, 1 відповідає ідеальному плану. Нижче 0 гірше за naive.", "result"],
+];
+function tabGl() {
+  return `<p class="note">Тут кожне поле, яке бачить або повертає агент, і що воно означає простими словами. Код поля можна шукати в <code class="fld">observation</code> і в docs/fields.</p>
+  <div class="tbl"><table class="gl"><tr><th>Код поля</th><th>Назва</th><th>Що це</th><th>Де</th></tr>${GLOSS.map((g) => g[1] === null ? `<tr><td colspan="4" style="padding-top:14px"><b>${esc(g[0])}</b></td></tr>` : `<tr><td><code class="fld">${esc(g[0])}</code></td><td><b>${esc(g[1])}</b></td><td>${esc(g[2])}</td><td><span class="pill ${g[3] === "action" ? "info" : g[3] === "result" ? "warn" : "mute"}">${g[3] === "action" ? "дія" : g[3] === "result" ? "результат" : "спостереження"}</span></td></tr>`).join("")}</table></div>`;
+}
+const TABS = { obs: tabObs, act: tabAct, res: tabRes, ev: tabEv, gl: tabGl };
+
+/* render */
+function renderAll(keepScroll = true) {
+  const sy = window.scrollY;
+  syncControls(); drawTimeline(); drawMap(); drawInspector();
+  const open = [...document.querySelectorAll("#tabBody details.sec")].map((d) => d.open);
+  $("#tabBody").innerHTML = TABS[S.tab]();
+  if (open.length) document.querySelectorAll("#tabBody details.sec").forEach((d, i) => { if (open[i] != null && S.tabKept === S.tab) d.open = open[i]; });
+  S.tabKept = S.tab;
+  if (keepScroll) window.scrollTo(0, sy);
+}
+function setWeek(w) { S.w = Math.max(0, Math.min(T - 1, w)); renderAll(); }
+function stop() { if (S.play) { clearInterval(S.play); S.play = null; } }
+
+document.addEventListener("click", (ev) => {
+  const t = ev.target.closest("[data-edge],[data-node],[data-week],[data-agent],[data-tab],[data-pick],[data-clear],[data-filt]");
+  if (!t) return;
+  if (t.dataset.edge != null) { S.sel = { t: "edge", i: +t.dataset.edge }; }
+  else if (t.dataset.node != null) { S.sel = { t: "node", i: +t.dataset.node }; }
+  else if (t.dataset.week != null) { S.w = +t.dataset.week; }
+  else if (t.dataset.agent) { S.agent = t.dataset.agent; }
+  else if (t.dataset.pick) { S.agent = t.dataset.pick; }
+  else if (t.dataset.tab) { S.tab = t.dataset.tab; }
+  else if (t.dataset.clear != null) { S.sel = null; }
+  else if (t.dataset.filt) { S.filt[t.dataset.filt] = !S.filt[t.dataset.filt]; }
+  renderAll();
+});
+document.addEventListener("change", (ev) => {
+  const id = ev.target.id;
+  if (id === "chkDev") S.onlyDev = ev.target.checked;
+  else if (id === "chkCmp") S.compare = ev.target.checked;
+  else if (id === "selLabel") S.label = ev.target.value;
+  else if (id === "selEp") { S.ep = +ev.target.value; S.w = defaultWeek(); S.sel = defaultSel(); }
+  else return;
+  renderAll();
+});
+$("#rng").addEventListener("input", (ev) => { S.w = +ev.target.value - 1; renderAll(); });
+$("#btnPrev").addEventListener("click", () => setWeek(S.w - 1));
+$("#btnNext").addEventListener("click", () => setWeek(S.w + 1));
+$("#btnPlay").addEventListener("click", () => {
+  if (S.play) { stop(); renderAll(); return; }
+  if (S.w >= T - 1) S.w = 0;
+  S.play = setInterval(() => { if (S.w >= T - 1) { stop(); renderAll(); } else setWeek(S.w + 1); }, 650);
+  renderAll();
+});
+$("#btnTheme").addEventListener("click", () => {
+  const r = document.documentElement, dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  r.dataset.theme = dark ? "light" : "dark";
+});
+document.addEventListener("keydown", (ev) => {
+  if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && document.activeElement.type !== "checkbox") return;
+  if (ev.key === "ArrowLeft") { ev.preventDefault(); setWeek(S.w - 1); }
+  if (ev.key === "ArrowRight") { ev.preventDefault(); setWeek(S.w + 1); }
+});
+function defaultWeek() { const c = firstClosure(A()); return c >= 0 ? c : 0; }
+function defaultSel() { return N.chokepoints.length ? { t: "node", i: N.chokepoints[0] } : null; }
+
+buildControls();
+S.w = defaultWeek();
+S.sel = defaultSel();
+$("#foot").textContent = "Усі дані записано з гри агентів на епізодах розробницької вибірки. Клавіші ← і → перемикають тижні.";
+renderAll(false);
+</script>
