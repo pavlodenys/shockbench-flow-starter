@@ -77,6 +77,25 @@ def test_policy_search(env_with_cache, tmp_path):
 
 
 def test_dashboard(env_with_cache, tmp_path):
-    run("07_dashboard.py", "--episode=29", "--quick", "--n_jobs=1", "--out=run", env=env_with_cache, cwd=tmp_path)
-    for name in ("network.png", "dashboard_max.png", "episode_max.gif", "record_random.npz"):
+    output = run(
+        "07_dashboard.py", "--episode=29", "--quick", "--n_jobs=1", "--out=run", env=env_with_cache, cwd=tmp_path
+    )
+    assert "mine minus template:" in output
+    for name in (
+        "network.png",
+        "dashboard_mine.png",
+        "dashboard_max.png",
+        "episode_mine.gif",
+        "episode_max.gif",
+        "record_mine.npz",
+        "record_max.npz",
+    ):
         assert (tmp_path / "run" / name).is_file(), name
+
+
+def test_compare_training_costs(env_with_cache, tmp_path):
+    run("08_compare_costs.py", "--episodes=1", "--out=run", env=env_with_cache, cwd=tmp_path)
+    rows = json.loads((tmp_path / "run" / "episodes.json").read_text())
+    assert [row["agent"] for row in rows] == ["baseline", "mine"]
+    assert all(row["entropy"] == 12345 and row["cost_usd"] > 0 for row in rows)
+    assert all(abs(sum(row["components"].values()) - row["salvage_usd"] - row["cost_usd"]) < 1 for row in rows)

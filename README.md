@@ -52,6 +52,27 @@ Stable-Baselines3 and PyTorch.
 
 The commands below assume the environment is active. Without it, put `uv run` in front: `uv run sbf evaluate mine`.
 
+#### Windows: run evaluation in Docker
+
+`shockbench-flow==0.1.2` imports the Unix-only `fcntl` and `termios` modules in its evaluation runner.
+Native Windows `sbf evaluate` therefore fails before playing an episode. With Docker Desktop running Linux
+containers, use this launcher from PowerShell in the repository:
+
+```powershell
+.\scripts\sbf-docker.ps1 evaluate mine --quick
+.\scripts\sbf-docker.ps1 evaluate mine
+.\scripts\sbf-docker.ps1 compare mine template --task=small
+.\scripts\sbf-docker.ps1 check mine --task=small
+```
+
+The first command builds a Linux Python 3.13 environment from `uv.lock`. Later builds reuse dependency layers and
+the download cache. The repository is mounted live, so agent edits apply immediately and outputs stay on Windows.
+Linux dependencies live in `/opt/venv`; the Windows `.venv` is not used. Reference calculations persist in the Docker
+volume `shockbench-flow-reference-cache`. Use agent names or repository-relative paths in these commands.
+The image includes the core and test dependencies; the optional PPO dependencies are not installed.
+`--quick` is only a smoke test; omit it for the normal evaluation. This launcher does not expose the Docker engine
+inside the container, so use `check` without the nested `--docker` option.
+
 ### 4. Run the quick start
 
 ```bash
@@ -62,6 +83,9 @@ It plays one episode of the practice network (Tiny) with random actions and prin
 while Python compiles the packages.
 
 ### 5. Create your agent
+
+This checkout includes an inventory-aware fuel policy in `agents/mine` and a preserved `agents/baseline`.
+See [the strategy and measured results](docs/MINE.md) before replacing `mine` with the template below.
 
 ```bash
 cp -r agents/template agents/mine
@@ -161,7 +185,7 @@ fits only the network it was made on: use `--task=small` for one you will submit
 | [04_evaluate.py](examples/04_evaluate.py)               | `sbf evaluate` and `sbf compare` from Python                                               |
 | [05_train_ppo.py](examples/05_train_ppo.py)             | PPO (Stable-Baselines3), exported as a submission the server can run (`uv sync --extra rl`) |
 | [06_policy_search.py](examples/06_policy_search.py)     | an evolutionary search over an agent's numbers, and where an LLM proposer fits             |
-| [07_dashboard.py](examples/07_dashboard.py)             | the network map, episode dashboards and a GIF                                              |
+| [07_dashboard.py](examples/07_dashboard.py)             | compare mine and template: network map, dashboards and a GIF for each agent                 |
 
 ```bash
 python examples/03_heuristic_agent.py --task=small --episodes=6

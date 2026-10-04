@@ -1,10 +1,10 @@
-"""Dashboards of one dev episode: random and send-the-maximum on the same scenario, with the naive rule.
+"""Compare mine and send-the-maximum on the same dev scenario, with the naive rule.
 
     uv run python examples/07_dashboard.py
     uv run python examples/07_dashboard.py --episode=29 --quick
     uv run python examples/07_dashboard.py --task=small --episode=0
 
-Writes network.png, dashboard_*.png, episode_max.gif and record_*.npz. The naive rule takes about 30 s on Tiny the
+Writes network.png, dashboard_*.png, episode_*.gif and record_*.npz. The naive rule takes about 30 s on Tiny the
 first time, then comes from the cache. Made for Tiny: on Small and Full the map and stock panels are crowded.
 """
 
@@ -33,7 +33,7 @@ def main(
     seed: int = 0,
     out: str | None = None,
 ) -> None:
-    """Write the map, both dashboards, the GIF and the records.
+    """Write the map, both dashboards, both GIFs and the records.
 
     Args:
         task: tiny, small or full.
@@ -60,19 +60,24 @@ def main(
     replications = None if not naive else QUICK["fq_replications"] if quick else NAIVE_REPLICATIONS
     dashboard.plot_network(task).savefig(out / "network.png", dpi=100)
     written = ["network.png"]
-    for name, agent in (("random", load("random")), ("max", load("template"))):
+    costs = {}
+    for name, agent in (("mine", load("mine")), ("max", load("template"))):
         start = time.perf_counter()
         rec = dashboard.record_episode(
             env, agent, seed=seed, options={"episode": n}, naive_replications=replications, n_jobs=n_jobs
         )
         meta = rec["meta"]  # costs in integer cents
+        costs[name] = meta["J_cents"] / 100
         naive_cost = f", the naive rule's ${meta['naive_J_cents'] / 100:,.0f}" if "naive" in rec else ""
         print(f"{name}: cost ${meta['J_cents'] / 100:,.0f}{naive_cost} ({time.perf_counter() - start:.1f} s)")
         dashboard.save_record(rec, out / f"record_{name}.npz")
         dashboard.episode_dashboard(rec, out / f"dashboard_{name}.png")
-        written += [f"record_{name}.npz", f"dashboard_{name}.png"]
-    dashboard.episode_animation(rec, out / "episode_max.gif")
-    print(f"written in {out}: {', '.join([*written, 'episode_max.gif'])}")
+        dashboard.episode_animation(rec, out / f"episode_{name}.gif")
+        written += [f"record_{name}.npz", f"dashboard_{name}.png", f"episode_{name}.gif"]
+    difference = costs["mine"] - costs["max"]
+    percent = f" ({100 * difference / costs['max']:+.2f}%)" if costs["max"] > 0 else ""
+    print(f"mine minus template: ${difference:+,.0f}{percent}; negative means mine costs less")
+    print(f"written in {out}: {', '.join(written)}")
 
 
 if __name__ == "__main__":
