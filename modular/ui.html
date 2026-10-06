@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Конструктор агента</title>
+<style>
+:root {
+  --bg: #eef2f5; --surface: #ffffff; --surface2: #f4f7f9; --ink: #14202b; --ink2: #4a5b6a; --ink3: #7b8a97;
+  --line: #d6dee5; --accent: #0a6c8c; --accent-soft: #d9eef5; --ok: #1f8a5b; --ok-soft: #dcf1e7;
+  --warn: #b86e00; --warn-soft: #faecd0; --bad: #c8372d; --bad-soft: #fadfdb;
+  --shadow: 0 1px 2px rgb(20 32 43 / 0.06), 0 4px 14px rgb(20 32 43 / 0.05);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d141a; --surface: #152029; --surface2: #1b2833; --ink: #e6edf2; --ink2: #a9b8c4; --ink3: #7d8d9a;
+    --line: #2a3a47; --accent: #46b3d3; --accent-soft: #14323d; --ok: #46c08c; --ok-soft: #123226;
+    --warn: #e0a23a; --warn-soft: #3a2c10; --bad: #ef6b60; --bad-soft: #3d1b18; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font); }
+header { display: flex; align-items: baseline; gap: 16px; padding: 14px 20px; background: var(--surface); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+header h1 { margin: 0; font-size: 18px; }
+header p { margin: 0; color: var(--ink2); }
+main { display: grid; grid-template-columns: 290px minmax(340px, 1fr) 380px; gap: 16px; padding: 16px 20px; align-items: start; }
+@media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 14px; }
+.panel h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink2); }
+.stack { display: grid; gap: 12px; }
+.muted { color: var(--ink2); font-size: 13px; }
+.stage-title { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink3); }
+.stage-title:first-of-type { margin-top: 4px; }
+.palette-item { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: var(--surface2); }
+.palette-item b { font-family: var(--mono); font-size: 13px; }
+.palette-item p { margin: 2px 0 6px; color: var(--ink2); font-size: 12.5px; }
+button, select, input[type=text] { font: inherit; color: var(--ink); }
+button { border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 6px 12px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.primary { color: #06222b; } }
+button.small { padding: 3px 9px; font-size: 12.5px; }
+button.link { border: none; background: none; color: var(--bad); padding: 2px 6px; }
+input[type=text], select { background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; width: 100%; }
+input[type=number] { width: 78px; font: inherit; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+label.row { display: flex; gap: 8px; align-items: center; margin: 4px 0; cursor: pointer; }
+.flow { display: grid; gap: 10px; }
+.node { border: 1px dashed var(--line); border-radius: 8px; padding: 9px 12px; background: var(--surface2); }
+.node.fixed .t { font-weight: 600; }
+.arrow { text-align: center; color: var(--ink3); line-height: 1; }
+.stage-box { border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.stage-box > .head { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink2); margin-bottom: 8px; }
+.empty-stage { color: var(--ink3); font-size: 13px; padding: 4px 0; }
+.card { border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 9px; padding: 10px 12px; margin-bottom: 8px; }
+.card .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.card .top b { font-family: var(--mono); }
+.card p { margin: 3px 0 8px; font-size: 12.5px; color: var(--ink2); }
+.param { margin: 8px 0 2px; }
+.param .line { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+.param .hint { font-size: 12px; color: var(--ink3); }
+pre { margin: 0; padding: 10px; background: var(--surface2); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.45 var(--mono); overflow: auto; max-height: 260px; }
+.status { padding: 7px 10px; border-radius: 7px; font-size: 13px; }
+.status.ok { background: var(--ok-soft); color: var(--ok); }
+.status.bad { background: var(--bad-soft); color: var(--bad); }
+.status.warn { background: var(--warn-soft); color: var(--warn); }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.field { display: grid; gap: 4px; }
+.field > span { font-size: 12.5px; color: var(--ink2); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 600; color: var(--ink2); font-size: 12px; padding: 4px 4px 6px; }
+td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
+td.num { font-family: var(--mono); text-align: right; white-space: nowrap; }
+.bar { position: relative; height: 10px; background: var(--surface2); border-radius: 5px; min-width: 90px; }
+.bar i { position: absolute; top: 0; bottom: 0; border-radius: 5px; background: var(--accent); }
+.bar i.neg { background: var(--bad); }
+.bar i.pos { background: var(--ok); }
+.bar i.unk { background: var(--ink3); }
+.bar u { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--ink2); }
+.log { white-space: pre-wrap; font: 12px/1.5 var(--mono); color: var(--ink2); max-height: 120px; overflow: auto; }
+.me td { font-weight: 600; }
+.explain { margin: 8px 0 2px; padding: 8px 10px; border-radius: 7px; background: var(--surface); border: 1px solid var(--line); font-size: 12.5px; color: var(--ink2); }
+.explain b { color: var(--ink); }
+.explain ul { margin: 4px 0 0; padding-left: 18px; }
+.dirs { font-size: 12px; color: var(--ink3); margin-top: 3px; }
+.insight { padding: 8px 10px; border-radius: 7px; margin: 6px 0; font-size: 13px; border-left: 4px solid var(--ink3); background: var(--surface2); }
+.insight.good { border-color: var(--ok); } .insight.bad { border-color: var(--bad); } .insight.warn { border-color: var(--warn); }
+.insight b { display: block; }
+.chip { font-size: 11px; padding: 1px 7px; border-radius: 9px; }
+.chip.pos { background: var(--ok-soft); color: var(--ok); } .chip.neg { background: var(--bad-soft); color: var(--bad); } .chip.unk { background: var(--surface2); color: var(--ink2); }
+.tag { font-size: 11px; padding: 1px 6px; border-radius: 9px; background: var(--surface2); color: var(--ink2); margin-left: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Конструктор агента</h1>
+  <p>Збери полісі з атомів: обери базу, додай правила, налаштуй числа, збудуй готовий <code>agent.py</code> і порівняй зі зразками. Нічого не завантажується на Codabench.</p>
+</header>
+<main>
+  <section class="panel" aria-label="Атоми">
+    <h2>1. База і атоми</h2>
+    <div class="field">
+      <span>База: звідки беремо потік</span>
+      <label class="row"><input type="radio" name="base" value="capacity" checked> capacity — максимум на дозволених маршрутах</label>
+      <label class="row"><input type="radio" name="base" value="nominal"> nominal — нормальний план тижня 0</label>
+      <div class="status warn" id="baseWarn" hidden>nominal — слабка база: на Small dev без атомів дає −2,39 (це не naive, у якого скор 0).</div>
+    </div>
+    <div id="palette"></div>
+  </section>
+
+  <section class="panel" aria-label="Конвеєр">
+    <h2>2. Конвеєр полісі (порядок фіксований)</h2>
+    <div class="flow" id="flow"></div>
+  </section>
+
+  <div class="stack">
+    <section class="panel" aria-label="Рецепт">
+      <h2>3. Рецепт і агент</h2>
+      <div class="stack">
+        <label class="field"><span>Ім'я агента (папка agents/&lt;ім'я&gt;)</span><input type="text" id="name" value="my_agent" autocomplete="off"></label>
+        <label class="field"><span>Завантажити готовий рецепт</span><select id="loadSel"><option value="">— обрати —</option></select></label>
+        <div class="status ok" id="valid">…</div>
+        <pre id="json"></pre>
+        <div class="buttons">
+          <button class="primary" id="btnBuild">Збудувати агента</button>
+          <button id="btnSave">Зберегти рецепт</button>
+        </div>
+        <div class="muted" id="buildMsg"></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Порівняння">
+      <h2>4. Порівняти</h2>
+      <div class="stack">
+        <div class="field"><span>Мережа</span>
+          <select id="task"><option value="tiny">Tiny (практика, швидко)</option><option value="small">Small (публічний борд)</option></select></div>
+        <div class="field"><span>Епізоди</span>
+          <select id="mode"><option value="quick">quick — секунди, не цифри борду</option><option value="dev">dev — 20 публічних епізодів (на Small перший раз хвилини)</option></select></div>
+        <div class="field"><span>Порівняти з</span><div id="refs"></div></div>
+        <label class="row"><input type="checkbox" id="ablate"> Внесок кожного атома (прибрати по одному)</label>
+        <div class="buttons"><button class="primary" id="btnRun">Порівняти</button></div>
+        <div class="log" id="log"></div>
+        <div id="results"></div>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="Аналіз">
+      <h2>5. Аналіз: що спробувати</h2>
+      <div class="stack">
+        <div id="insights" class="muted">Після порівняння тут з'являться висновки й поради.</div>
+        <div class="field"><span>Підбір покращень: на яких епізодах пробувати</span>
+          <select id="root">
+            <option value="own">власний корінь (не dev) — рекомендовано, не підганяє під dev</option>
+            <option value="dev">dev-епізоди (швидше, але ризик підгонки)</option>
+          </select></div>
+        <div class="muted">Сервер пробує сусідні варіанти вашого рецепта: кожне число ± чверть діапазону, прибрати чи додати атом, і порівнює парно з поточним. Мережа та режим — з блоку 4. На Small це кілька хвилин.</div>
+        <div class="buttons"><button class="primary" id="btnSuggest">Підібрати покращення</button></div>
+        <div class="log" id="slog"></div>
+        <div id="suggestions"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid != null) el.append(kid.nodeType ? kid : document.createTextNode(kid));
+  return el;
+}
+const api = async (path, body) => {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  return r.json();
+};
+
+let meta = null;                       // atoms, stages, recipes from the server
+const recipe = { base: "capacity", atoms: [] };   // atoms: [{atom, params}]
+let valid = false, timer = null;
+
+const explainers = [];
+const pct = (x) => (x * 100 < 1 ? "<1" : (x * 100).toFixed(x * 100 < 10 ? 1 : 0)) + "%";
+// share of strait-weeks with a warning score above the threshold: 16 dev episodes of Small, template agent
+const WARN_FREQ = [[-3, 1], [0.5, 0.2], [1, 0.092], [1.5, 0.034], [2, 0.009], [3, 0.001], [5, 0]];
+function warnFreq(t) {
+  for (let i = 1; i < WARN_FREQ.length; i++) if (t <= WARN_FREQ[i][0]) {
+    const [x0, y0] = WARN_FREQ[i - 1], [x1, y1] = WARN_FREQ[i];
+    return y0 + ((y1 - y0) * (t - x0)) / (x1 - x0);
+  }
+  return 0;
+}
+const EXPLAIN = {
+  strait_open: {
+    live: (p) => [0.75, 0.5, 0.25, 0].map((o) => `протока відкрита на ${o * 100}% → вантаж через неї ×${(o ** p.power).toFixed(2)}`)
+      .concat([p.power === 0 ? "power = 0: закриття ігноруються" : p.power > 1 ? "power > 1: різко відсікає вантаж навіть при слабкому закритті" : p.power === 1 ? "power = 1: пропорційно відкритості (як в агента heuristic)" : "power < 1: відсікає м'яко, поки протока не майже закрита"]),
+    evidence: "на Small трохи шкодить (−0,005…−0,008): вантаж у закриту протоку, схоже, не такий дорогий, як втрачені відправки.",
+  },
+  fraction: {
+    live: (p) => [`відправляється ${pct(p.share)} бази, ${pct(1 - p.share)} місткості не використовується`, p.share < 1 ? "це лишає простір лише для атомів, що піднімають потік (sanction_frontload); без них менше — це недопоставки" : "1 = без змін"],
+    evidence: "share 0,8 дав −0,22…−0,24 на Small: відправляти менше за максимум дорого (дефіцит коштує більше за зберігання).",
+  },
+  warning_cut: {
+    live: (p) => [`поріг ${p.threshold}: спрацьовує приблизно у ${pct(warnFreq(p.threshold))} тижнів-проток (за даними Small)`, `коли спрацьовує, потік через протоку ×${(1 - p.cut).toFixed(2)}`, `очікувана частка зменшеного потоку ≈ ${pct(warnFreq(p.threshold) * p.cut)}`],
+    evidence: "сигнал слабкий: після score > 1,5 закриття протягом 4 тижнів було у 4% випадків при базових 1,8%. Ефект на скор ≈ 0.",
+  },
+  demand_cap: {
+    live: (p) => [`ринок тримається покритим на ${p.cover} тиж. прогнозу; дозволено до ×${p.slack} від потреби`, p.cover * p.slack < 4 ? "обмеження жорстке: економить зберігання, але є ризик дефіциту" : p.cover * p.slack > 10 ? "обмеження м'яке: майже як «максимум», мало що економить" : "помірне обмеження"],
+    evidence: "єдиний стабільний плюс на Small: +0,02…+0,03 (інтервал без нуля). На Tiny quick може бути мінус.",
+  },
+  sanction_frontload: {
+    live: (p) => [`за ${p.lead} тиж. до оголошеної санкції піднімає ${pct(p.boost)} різниці до місткості`, "діє лише поки потік нижчий за місткість (разом з fraction < 1) і є запас на виході"],
+    evidence: "спрацьовує у ≈ 4,5% тижнів (47 з 1040), але ефект на скор ≈ 0 (±0,001).",
+  },
+};
+const PARAM_HELP = {
+  strait_open: { power: ["ігнорує закриття", "відсікає вантаж різкіше"] },
+  fraction: { share: ["менше відправок, ризик дефіциту", "ближче до максимуму"] },
+  warning_cut: { threshold: ["спрацьовує частіше", "рідше, лише на сильні сигнали"], cut: ["слабше зменшення", "сильніше зменшення потоку"] },
+  demand_cap: { cover: ["жорсткіше обмеження, менше зберігання", "м'якше, ближче до максимуму"], slack: ["жорсткіше", "м'якше"] },
+  sanction_frontload: { lead: ["починає пізніше", "починає раніше"], boost: ["слабший підйом", "до повної місткості"] },
+};
+const ADVICE = {
+  strait_open: { hurts: "приберіть strait_open або спробуйте power 0,3…0,5: м'якше відсікання", unclear: "ефект непомітний: його можна прибрати для простоти", helps: "спробуйте більший power (1,5…2)" },
+  fraction: { hurts: "підніміть share до 1 або приберіть атом: менше за максимум зазвичай шкодить", unclear: "приберіть: він лише ускладнює рецепт", helps: "спробуйте менший share, але перевірте на Small" },
+  warning_cut: { hurts: "приберіть: сигнал попередження слабкий", unclear: "приберіть: сигнал попередження слабко передбачає закриття", helps: "спробуйте вищий поріг і більший cut" },
+  demand_cap: { hurts: "спробуйте більші cover (6…8) та slack (2…3): обмеження занадто жорстке", unclear: "спробуйте менші cover/slack (3, 1,2): обмеження поки надто м'яке, щоб щось змінити", helps: "це робочий атом: спробуйте cover 3…6 та slack 1,2…2 і виберіть кращі" },
+  sanction_frontload: { hurts: "приберіть", unclear: "приберіть або поєднайте з fraction < 1 і більшим lead", helps: "спробуйте більший lead" },
+};
+const atomByName = (n) => meta.atoms.find((a) => a.name === n);
+const fmt = (x) => (Math.abs(x) >= 100 || Number.isInteger(x) ? String(x) : String(+x.toFixed(3)));
+const sign = (x, d = 3) => (x == null ? "—" : (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(d));
+const currentRecipe = () => ({ name: $("name").value.trim(), base: recipe.base, atoms: recipe.atoms.map((a) => ({ atom: a.atom, params: { ...a.params } })) });
+
+function renderPalette() {
+  const root = $("palette");
+  root.replaceChildren();
+  for (const stage of Object.keys(meta.stages)) {
+    root.append(h("div", { class: "stage-title" }, meta.stages[stage]));
+    for (const a of meta.atoms.filter((x) => x.stage === stage)) {
+      const used = recipe.atoms.some((x) => x.atom === a.name);
+      root.append(h("div", { class: "palette-item" },
+        h("b", {}, a.name), h("p", {}, a.summary),
+        h("button", { class: "small", disabled: used, onclick: () => addAtom(a.name) }, used ? "Додано" : "+ Додати")));
+    }
+  }
+}
+
+function renderFlow() {
+  explainers.length = 0;
+  const root = $("flow");
+  root.replaceChildren();
+  root.append(h("div", { class: "node fixed" }, h("div", { class: "t" }, "База: " + recipe.base),
+    h("div", { class: "muted" }, recipe.base === "capacity" ? "потік = місткість маршруту × маска дозволених" : "потік = нормальний план тижня 0 × маска дозволених")));
+  for (const stage of Object.keys(meta.stages)) {
+    root.append(h("div", { class: "arrow" }, "▼"));
+    const inStage = recipe.atoms.filter((x) => atomByName(x.atom).stage === stage);
+    const box = h("div", { class: "stage-box" }, h("div", { class: "head" }, meta.stages[stage]));
+    if (!inStage.length) box.append(h("div", { class: "empty-stage" }, "порожньо — додайте атом зліва"));
+    for (const entry of inStage) box.append(atomCard(entry));
+    root.append(box);
+  }
+  root.append(h("div", { class: "arrow" }, "▼"));
+  root.append(h("div", { class: "node fixed" }, h("div", { class: "t" }, "Запобіжник (завжди)"),
+    h("div", { class: "muted" }, "несправний атом пропускається; потік обрізається до [0, місткість × маска]; якщо план усе ще хибний — максимум на дозволених маршрутах.")));
+}
+
+function atomCard(entry) {
+  const a = atomByName(entry.atom);
+  const card = h("div", { class: "card" },
+    h("div", { class: "top" }, h("b", {}, a.name), h("button", { class: "link", title: "прибрати атом", onclick: () => removeAtom(a.name) }, "✕ прибрати")),
+    h("p", {}, a.summary + (a.details ? " " + a.details : "")));
+  for (const p of a.params) {
+    const set = (v) => { entry.params[p.key] = v; number.value = v; range.value = v; changed(); };
+    const number = h("input", { type: "number", min: p.lo, max: p.hi, step: "any", value: entry.params[p.key], onchange: (e) => {
+      const v = parseFloat(e.target.value); entry.params[p.key] = Number.isFinite(v) ? v : p.default; range.value = entry.params[p.key]; changed(); } });
+    const step = (p.hi - p.lo) / 100;
+    const range = h("input", { type: "range", min: p.lo, max: p.hi, step: String(step), value: entry.params[p.key], oninput: (e) => {
+      const v = Math.round(parseFloat(e.target.value) / step) * step; const clean = +v.toFixed(4); entry.params[p.key] = clean; number.value = clean; changed(); } });
+    card.append(h("div", { class: "param" },
+      h("div", { class: "line" }, h("span", {}, p.key + " — " + p.doc), number), range,
+      h("div", { class: "hint" }, `за замовчуванням ${fmt(p.default)}, межі [${fmt(p.lo)}, ${fmt(p.hi)}]`),
+      PARAM_HELP[a.name] && PARAM_HELP[a.name][p.key] ? h("div", { class: "dirs" }, "← " + PARAM_HELP[a.name][p.key][0] + "   →  " + PARAM_HELP[a.name][p.key][1]) : null));
+  }
+  const exp = h("div", { class: "explain" });
+  card.append(exp);
+  const refresh = () => {
+    const info = EXPLAIN[entry.atom];
+    exp.replaceChildren(h("b", {}, "Що буде при цих значеннях"), h("ul", {}, info.live(entry.params).map((t) => h("li", {}, t))),
+      h("div", { class: "dirs" }, "Виміряно: " + info.evidence));
+  };
+  explainers.push(refresh);
+  refresh();
+  return card;
+}
+
+function addAtom(name) {
+  const a = atomByName(name);
+  recipe.atoms.push({ atom: name, params: Object.fromEntries(a.params.map((p) => [p.key, p.default])) });
+  renderPalette(); renderFlow(); changed();
+}
+function removeAtom(name) {
+  recipe.atoms = recipe.atoms.filter((x) => x.atom !== name);
+  renderPalette(); renderFlow(); changed();
+}
+
+function changed() {
+  explainers.forEach((f) => f());
+  $("json").textContent = JSON.stringify(currentRecipe(), null, 2);
+  $("baseWarn").hidden = recipe.base !== "nominal";
+  clearTimeout(timer);
+  timer = setTimeout(validate, 150);
+}
+async function validate() {
+  const r = await api("/api/validate", { recipe: currentRecipe() });
+  valid = !!r.ok;
+  const box = $("valid");
+  box.className = "status " + (valid ? "ok" : "bad");
+  box.textContent = valid ? `Рецепт коректний; агент буде ≈ ${r.source_lines} рядків, один файл agent.py` : "Помилка: " + r.error;
+  const nameOk = /^[a-z][a-z0-9_]{0,39}$/.test($("name").value.trim());
+  for (const id of ["btnBuild", "btnSave", "btnRun"]) $(id).disabled = !valid || !nameOk;
+}
+
+$("name").addEventListener("input", changed);
+document.querySelectorAll("input[name=base]").forEach((el) => el.addEventListener("change", (e) => { recipe.base = e.target.value; renderFlow(); changed(); }));
+
+$("loadSel").addEventListener("change", (e) => {
+  const r = meta.recipes.find((x) => x.name === e.target.value);
+  if (!r) return;
+  recipe.base = r.base;
+  recipe.atoms = r.atoms.map((a) => ({ atom: a.atom, params: { ...a.params } }));
+  document.querySelector(`input[name=base][value=${r.base}]`).checked = true;
+  $("name").value = r.shipped ? r.name + "_copy" : r.name;
+  e.target.value = "";
+  renderPalette(); renderFlow(); changed();
+});
+
+$("btnBuild").addEventListener("click", async () => {
+  const r = await api("/api/build", { recipe: currentRecipe() });
+  const msg = $("buildMsg");
+  msg.replaceChildren();
+  if (r.ok) msg.append(h("div", { class: "status ok" }, "Збудовано " + r.folder + "/agent.py. Перевірка: "), h("pre", {}, r.check));
+  else msg.append(h("div", { class: "status bad" }, r.error));
+});
+$("btnSave").addEventListener("click", async () => {
+  const r = await api("/api/save", { recipe: currentRecipe() });
+  $("buildMsg").replaceChildren(h("div", { class: "status " + (r.ok ? "ok" : "bad") }, r.ok ? `Рецепт збережено: modular/recipes/${r.name}.json` : r.error));
+  if (r.ok) { meta = await api("/api/atoms"); fillRecipes(); }
+});
+
+function fillRecipes() {
+  const sel = $("loadSel");
+  sel.replaceChildren(h("option", { value: "" }, "— обрати —"), ...meta.recipes.map((r) => h("option", { value: r.name }, r.name + (r.shipped ? " (зразок)" : ""))));
+  const refs = $("refs");
+  const checked = new Set([...refs.querySelectorAll("input:checked")].map((i) => i.value));
+  refs.replaceChildren(...meta.recipes.map((r) => h("label", { class: "row" },
+    h("input", { type: "checkbox", value: r.name, checked: checked.size ? checked.has(r.name) : ["empty", "heuristic"].includes(r.name) }),
+    r.name, r.shipped ? h("span", { class: "tag" }, "зразок") : null)));
+}
+
+$("btnRun").addEventListener("click", async () => {
+  $("btnRun").disabled = true;
+  $("results").replaceChildren();
+  $("log").textContent = "запуск…";
+  const refs = [...$("refs").querySelectorAll("input:checked")].map((i) => i.value);
+  const r = await api("/api/run", { recipe: currentRecipe(), task: $("task").value, mode: $("mode").value, ablate: $("ablate").checked, references: refs });
+  if (!r.ok) { $("log").textContent = r.error; validate(); return; }
+  poll(r.job);
+});
+
+async function poll(job) {
+  const j = await api("/api/job/" + job);
+  $("log").textContent = j.log.join("\n") || "…";
+  if (j.status === "running") return setTimeout(() => poll(job), 1200);
+  validate();
+  if (j.status === "error") return $("results").replaceChildren(h("div", { class: "status bad" }, j.error));
+  showResults(j.result);
+}
+
+function analyze(res) {
+  const mine = $("name").value.trim(), box = $("insights"), items = [];
+  const add = (kind, title, text) => items.push(h("div", { class: "insight " + kind }, h("b", {}, title), text));
+  const me = res.scores.find((s) => s.name === mine);
+  if (res.quick || res.task === "tiny")
+    add("warn", "Обмежені умови прогону", `Це ${res.task}${res.quick ? ", quick" : ""}: цифри не переносяться на публічний борд (Small). Підтверджуйте на Small dev.`);
+  if (me) {
+    const empty = res.scores.find((s) => s.name === "empty");
+    if (empty && me.score != null && empty.score != null) {
+      const d = me.score - empty.score;
+      const overlap = me.interval && empty.interval && me.interval[0] < empty.interval[1] && empty.interval[0] < me.interval[1];
+      if (d < -0.005) add("bad", "Нижче за «просто максимум»", `Ваш агент на ${Math.abs(d).toFixed(3)} гірший за empty (≡ template). Правила разом поки шкодять: дивіться внесок атомів нижче й приберіть ті, що червоні.`);
+      else if (d > 0.005) add("good", "Вище за «просто максимум»", `+${d.toFixed(3)} до empty${overlap ? ", але інтервали сильно перетинаються: на цих епізодах різницю не завжди видно" : ""}.`);
+      else add("warn", "Практично як «просто максимум»", "Різниця до empty в межах шуму: правила майже нічого не міняють.");
+    }
+    if (me.fallback_weeks > 0) add("bad", "Тижні, зіграні naive", `${me.fallback_weeks} тижнів зіграно правилом naive: агент помилявся або вийшов за бюджет. Перевірте sbf check.`);
+  }
+  const have = new Set(recipe.atoms.map((a) => a.atom));
+  if (!res.ablation.length) add("warn", "Немає внеску атомів", "Увімкніть «Внесок кожного атома» й запустіть знову: тільки так видно, що саме допомагає.");
+  for (const a of res.ablation) {
+    const iv = a.interval, c = a.contribution;
+    // the interval decides; an interval that only just touches 0 with a clear sign counts as that sign
+    const kind = !iv ? "unclear" : iv[0] > 0 || (iv[0] >= -0.001 && c > 0.002) ? "helps" : iv[1] < 0 || (iv[1] <= 0.001 && c < -0.002) ? "hurts" : "unclear";
+    const tone = { helps: "good", hurts: "bad", unclear: "warn" }[kind];
+    const word = { helps: "допомагає", hurts: "шкодить", unclear: "не відрізняється від нуля" }[kind];
+    add(tone, `${a.atom}: ${word} (${sign(a.contribution, 4)})`, ADVICE[a.atom] ? ADVICE[a.atom][kind] : "");
+  }
+  const fr = recipe.atoms.find((a) => a.atom === "fraction");
+  if (fr && fr.params.share < 1 && !have.has("sanction_frontload")) add("bad", "fraction < 1 без атомів, що піднімають потік", "Ви свідомо недовантажуєте мережу. На Small це коштувало 0,2+ скору.");
+  if (!have.has("demand_cap")) add("good", "Є що додати: demand_cap", "Єдиний атом зі стабільним плюсом на Small (+0,02…+0,03).");
+  const wide = me && me.interval ? me.interval[1] - me.interval[0] : 0;
+  if (wide > 0.15) add("warn", "Широкий інтервал", `Інтервал скору ${wide.toFixed(2)} завширшки: епізодів мало. Для рішення порівнюйте парно («Підібрати покращення» робить це).`);
+  items.push(h("div", { class: "insight" }, h("b", {}, "Що далі"), "Натисніть «Підібрати покращення»: сервер спробує сусідні варіанти й покаже, які з них реально краще (парне порівняння). Переможця підтвердіть на dev через «Порівняти»."));
+  box.replaceChildren(...items);
+}
+
+function showResults(res) {
+  analyze(res);
+  const mine = $("name").value.trim();
+  const all = res.scores.flatMap((s) => [s.score, s.interval ? s.interval[0] : s.score]).filter((x) => x != null);
+  const lo = Math.min(0, ...all), hi = 1, pos = (v) => ((v - lo) / (hi - lo)) * 100;
+  const rows = res.scores.map((s) => h("tr", { class: s.name === mine ? "me" : "" },
+    h("td", {}, s.name),
+    h("td", {}, h("div", { class: "bar" }, h("u", { style: `left:${pos(0)}%` }),
+      s.score == null ? null : h("i", { class: s.score < 0 ? "neg" : "", style: `left:${pos(Math.min(0, s.score))}%;width:${Math.abs(pos(s.score) - pos(0))}%` }))),
+    h("td", { class: "num" }, sign(s.score, 3)),
+    h("td", { class: "num" }, s.interval ? `[${sign(s.interval[0], 2)}, ${sign(s.interval[1], 2)}]` : "—"),
+    h("td", { class: "num" }, String(s.fallback_weeks))));
+  const out = [
+    h("div", { class: "muted" }, `${res.task}, ${res.quick ? "quick (не цифри борду)" : "dev, 20 епізодів"}. Скор: 0 = naive, 1 = всевідаючий план.`),
+    h("table", {}, h("thead", {}, h("tr", {}, ...["рецепт", "", "скор", "90% інтервал", "тижні naive"].map((t) => h("th", {}, t)))), h("tbody", {}, rows)),
+  ];
+  if (res.ablation.length) {
+    const m = Math.max(0.001, ...res.ablation.map((a) => Math.abs(a.contribution || 0)));
+    out.push(h("h2", { style: "margin-top:14px" }, "Внесок атомів"),
+      h("table", {}, h("tbody", {}, res.ablation.map((a) => {
+        const iv = a.interval, kind = !iv ? "unk" : iv[0] > 0 ? "pos" : iv[1] < 0 ? "neg" : "unk";
+        const w = (Math.abs(a.contribution) / m) * 50;
+        const style = a.contribution >= 0 ? `left:50%;width:${w}%` : `left:${50 - w}%;width:${w}%`;
+        return h("tr", {}, h("td", {}, a.atom),
+          h("td", {}, h("div", { class: "bar" }, h("u", { style: "left:50%" }), h("i", { class: kind, style }))),
+          h("td", { class: "num" }, sign(a.contribution, 4)),
+          h("td", { class: "num" }, iv ? `[${sign(iv[0], 3)}, ${sign(iv[1], 3)}]` : "—"));
+      }))),
+      h("div", { class: "muted" }, "Плюс (зелений) — атом допомагає; червоний — шкодить; сірий — інтервал містить 0, епізоди не відрізняють."));
+  }
+  $("results").replaceChildren(...out);
+}
+
+$("btnSuggest").addEventListener("click", async () => {
+  $("btnSuggest").disabled = true;
+  $("suggestions").replaceChildren();
+  $("slog").textContent = "запуск…";
+  const r = await api("/api/run", { kind: "suggest", recipe: currentRecipe(), task: $("task").value, mode: $("mode").value, root: $("root").value });
+  if (!r.ok) { $("slog").textContent = r.error; $("btnSuggest").disabled = false; return; }
+  pollSuggest(r.job);
+});
+async function pollSuggest(job) {
+  const j = await api("/api/job/" + job);
+  $("slog").textContent = j.log.join("\n") || "…";
+  if (j.status === "running") return setTimeout(() => pollSuggest(job), 1500);
+  $("btnSuggest").disabled = false;
+  if (j.status === "error") return $("suggestions").replaceChildren(h("div", { class: "status bad" }, j.error));
+  showSuggestions(j.result);
+}
+function showSuggestions(res) {
+  const kind = (iv) => (!iv ? "unk" : iv[0] > 0 ? "pos" : iv[1] < 0 ? "neg" : "unk");
+  const word = { pos: "краще", neg: "гірше", unk: "не видно" };
+  const rows = res.suggestions.map((s) => {
+    const k = kind(s.interval);
+    return h("tr", {}, h("td", {}, s.label), h("td", { class: "num" }, sign(s.diff, 4)),
+      h("td", { class: "num" }, s.interval ? `[${sign(s.interval[0], 3)}, ${sign(s.interval[1], 3)}]` : "—"),
+      h("td", {}, h("span", { class: "chip " + k }, word[k])),
+      h("td", {}, h("button", { class: "small", onclick: () => applySuggestion(s) }, "Застосувати")));
+  });
+  const better = res.suggestions.filter((s) => kind(s.interval) === "pos").length;
+  $("suggestions").replaceChildren(
+    h("div", { class: "insight " + (better ? "good" : "warn") }, h("b", {}, better ? `${better} варіант(ів) надійно кращі за поточний` : "Жоден варіант не надійно кращий за поточний"),
+      res.entropy ? `Перевірено на власному корені ${res.entropy}${res.quick ? " (quick)" : ""}. Перед тим як вірити, підтвердіть на dev: «Застосувати» → «Порівняти».` : "Перевірено на dev: це підгонка під ті самі епізоди, не довіряйте без другого кореня."),
+    h("table", {}, h("thead", {}, h("tr", {}, ...["зміна", "Δ скор", "90% інтервал", "", ""].map((t) => h("th", {}, t)))), h("tbody", {}, rows)));
+}
+function applySuggestion(s) {
+  recipe.base = s.recipe.base;
+  recipe.atoms = s.recipe.atoms.map((a) => ({ atom: a.atom, params: { ...a.params } }));
+  renderPalette(); renderFlow(); changed();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+(async () => {
+  meta = await api("/api/atoms");
+  fillRecipes(); renderPalette(); renderFlow(); changed();
+})();
+</script>
+</body>
+</html>

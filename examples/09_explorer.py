@@ -599,7 +599,7 @@ def main(
     out = Path(out or f"outputs/09_explorer/{time.strftime('%Y-%m-%d_%H-%M-%S')}")
     out.mkdir(parents=True, exist_ok=True)
     env = gym.make(env_id(task), regime=regime)
-    names = [a.strip() for a in agents.split(",") if a.strip()]
+    names = [a.strip() for a in (agents if isinstance(agents, (tuple, list)) else str(agents).split(",")) if a.strip()]
     if episodes is None:
         chosen = episodes_with_closure(env, count, search=search, min_open=min_open, seed=seed)
     else:

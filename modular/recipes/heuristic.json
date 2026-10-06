@@ -1,0 +1,6 @@
+{
+  "name": "heuristic",
+  "description": "Equivalent of agents/heuristic with its default params: capacity, less through a partly closed strait.",
+  "base": "capacity",
+  "atoms": [{"atom": "strait_open", "params": {"power": 1.0}}]
+}

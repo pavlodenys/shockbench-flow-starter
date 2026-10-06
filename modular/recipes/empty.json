@@ -1,0 +1,6 @@
+{
+  "name": "empty",
+  "description": "No atoms: send the maximum on every allowed route. Equivalent to agents/template.",
+  "base": "capacity",
+  "atoms": []
+}

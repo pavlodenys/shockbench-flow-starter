@@ -1,0 +1,9 @@
+{
+  "name": "closure_cap",
+  "description": "Capacity, less through a partly closed strait, and no more to a market than its forecast needs.",
+  "base": "capacity",
+  "atoms": [
+    {"atom": "strait_open", "params": {"power": 1.0}},
+    {"atom": "demand_cap", "params": {"cover": 4.0, "slack": 1.5}}
+  ]
+}

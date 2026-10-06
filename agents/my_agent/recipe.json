@@ -1,0 +1,27 @@
+{
+  "name": "my_agent",
+  "description": "",
+  "base": "capacity",
+  "atoms": [
+    {
+      "atom": "fraction",
+      "params": {
+        "share": 1
+      }
+    },
+    {
+      "atom": "sanction_frontload",
+      "params": {
+        "lead": 3,
+        "boost": 1
+      }
+    },
+    {
+      "atom": "demand_cap",
+      "params": {
+        "cover": 2.25,
+        "slack": 1
+      }
+    }
+  ]
+}
