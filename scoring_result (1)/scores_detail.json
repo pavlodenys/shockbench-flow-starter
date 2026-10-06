@@ -1,0 +1,25 @@
+{
+ "phase": "development",
+ "rss_pooled": 0.4515251502041922,
+ "rss_strata": {
+  "1": 0.37334218710419514,
+  "2": 0.5027031943499048,
+  "3": 0.5668862086045001,
+  "4": 0.6167422622653204
+ },
+ "n_strata": {
+  "1": 105,
+  "2": 53,
+  "3": 22,
+  "4": 20
+ },
+ "excluded": 0,
+ "episodes": 200,
+ "fallback_count": 0,
+ "fallback_causes": {
+  "crashed": 0,
+  "invalid": 0,
+  "late": 0,
+  "over_budget": 0
+ }
+}

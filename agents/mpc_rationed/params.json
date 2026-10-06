@@ -1,0 +1,13 @@
+{
+  "reserve_weeks": 4.0,
+  "discount": 0.9,
+  "allocation_blend": 0.7,
+  "planning_horizon": 20.0,
+  "mpc_blend": 0.5,
+  "eta_margin": 1.0,
+  "supply_factor": 0.9,
+  "demand_factor": 1.0,
+  "terminal_weeks": 2.0,
+  "terminal_weight": 0.1,
+  "change_penalty": 0.02
+}

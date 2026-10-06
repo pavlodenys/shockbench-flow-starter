@@ -1,7 +1,8 @@
 """Allocate fuel using inventory, inbound cargo, travel times and expected grid use.
 
-A small LP balances fuel coverage by arrival week. Semiconductor flows retain the template
-policy. Only public configuration and observations are read; imports are submission-safe.
+A small LP balances fuel coverage by arrival week. Optional zero-weight extensions
+plan LNG, adapt LP blending and prioritize semiconductor shipments.
+Only public configuration and observations are read; imports are submission-safe.
 """
 
 import json
@@ -9,35 +10,69 @@ from pathlib import Path
 
 import numpy as np
 from scipy.optimize import linprog
-from scipy.sparse import coo_matrix
 
 
 PARAMS = {
     "reserve_weeks": 4.0,
     "discount": 0.9,
     "allocation_blend": 0.7,
-    "planning_horizon": 20.0,
-    "mpc_blend": 0.5,
-    "eta_margin": 1.0,
-    "supply_factor": 0.9,
-    "demand_factor": 1.0,
-    "terminal_weeks": 2.0,
-    "terminal_weight": 0.1,
-    "change_penalty": 0.02,
+    "delay_weight": 0.0,
+    "spread_weight": 0.0,
+    "shortage_weight": 0.0,
+    "reserve_min": 0.0,
+    "reserve_max": 8.0,
+    "lp_shortage_weight": 0.0,
+    "lp_delay_weight": 0.0,
+    "lng_reserve_weight": 0.0,
+    "lng_ration_weight": 0.0,
+    "lng_terminal_weight": 0.0,
+    "lng_lp_weight": 0.0,
+    "semi_allocation_weight": 0.0,
+    "semi_shortage_weight": 0.0,
+    "semi_value_weight": 0.0,
+    "semi_delay_weight": 0.0,
 }
 _params_file = Path(__file__).with_name("params.json")
 if _params_file.is_file():
     PARAMS.update(json.loads(_params_file.read_text()))
 
+EXTENSION_BOUNDS = {
+    "lp_shortage_weight": (-1.0, 1.0),
+    "lp_delay_weight": (-1.0, 1.0),
+    "lng_reserve_weight": (-4.0, 4.0),
+    "lng_ration_weight": (0.0, 2.0),
+    "lng_terminal_weight": (0.0, 1.0),
+    "lng_lp_weight": (-1.0, 1.0),
+    "semi_allocation_weight": (0.0, 1.0),
+    "semi_shortage_weight": (-2.0, 2.0),
+    "semi_value_weight": (-2.0, 2.0),
+    "semi_delay_weight": (-2.0, 2.0),
+}
 
-class BaseAgent:
+
+class Agent:
     def __init__(self, config):
         self.T = int(config["T"])
         self.reserve = float(PARAMS["reserve_weeks"])
         self.discount = float(PARAMS["discount"])
         self.blend = float(PARAMS["allocation_blend"])
+        self.options = {key: float(PARAMS[key]) for key in EXTENSION_BOUNDS}
+        for key, (low, high) in EXTENSION_BOUNDS.items():
+            if not np.isfinite(self.options[key]) or not low <= self.options[key] <= high:
+                raise ValueError(f"Invalid {key}")
         if self.reserve < 0 or not 0 < self.discount <= 1 or not 0 <= self.blend <= 1:
             raise ValueError("Invalid reserve, discount or allocation_blend")
+        self.reserve_weights = np.array(
+            [PARAMS[k] for k in ("delay_weight", "spread_weight", "shortage_weight")], dtype=float
+        )
+        self.reserve_min = float(PARAMS["reserve_min"])
+        self.reserve_max = float(PARAMS["reserve_max"])
+        if (
+            not np.all(np.isfinite(self.reserve_weights))
+            or np.any(np.abs(self.reserve_weights) > 2)
+            or not 0 <= self.reserve_min <= self.reserve_max <= 12
+        ):
+            raise ValueError("Invalid adaptive reserve weights or bounds")
         s, layout = config["static"], config["layout"]
         self.edges, self.lanes = s["edges"], s["lanes"]
         self.slot_edge = np.asarray(s["action_slots"]["edge"], dtype=int)
@@ -50,6 +85,12 @@ class BaseAgent:
         names = {name: i for i, name in enumerate(s["nodes"]["id"])}
         commodities = {name: i for i, name in enumerate(s["commodities"]["id"])}
         raw_nodes = {names[n["id"]]: n for n in s["instance"]["nodes"]}
+        self.raw_nodes = raw_nodes
+        self.commodity_names = s["commodities"]["id"]
+        self.sink_position = {tuple(pair): i for i, pair in enumerate(layout["demands"])}
+        self.sink_penalty = np.asarray(s["sinks"]["pi"], dtype=float)
+        self.fab_position = {node: i for i, node in enumerate(layout["fabs"])}
+        self.osat_position = {node: i for i, node in enumerate(layout["osats"])}
         self.grid_nominal = np.array([raw_nodes[n]["grid"]["deliverable"] for n in layout["grids"]])
         self.grid_storage = {}
         self.groups, self.group_for = [], {}
@@ -71,6 +112,11 @@ class BaseAgent:
                 indices = [self.stock_index[n, k] for n in members if (n, k) in self.stock_index]
                 self.groups.append((gi, node, k, float(share), float(grid["voll"]), indices))
                 self.grid_storage[self.stock_index[node, k]] = raw_nodes[node]["stock"][name]["storage"]
+        self.lng_groups = {g for g, group in enumerate(self.groups) if self.commodity_names[group[2]] == "lng"}
+        self.lng_floor = {
+            g: s["instance"]["params"]["psi"] * raw_nodes[self.groups[g][1]]["grid"]["ibar"].get("lng", 0.0)
+            for g in self.lng_groups
+        }
         self.routes, self.internal = [], []
         for slot, (e, k, lane) in enumerate(zip(self.slot_edge, self.slot_k, s["action_slots"]["lane"])):
             route = [int(e)] if lane is None else self.lanes["edges"][lane]
@@ -95,6 +141,16 @@ class BaseAgent:
             [int(edge)] if lane is None else self.lanes["edges"][lane]
             for edge, lane in zip(self.slot_edge, s["action_slots"]["lane"])
         ]
+        self.semi_routes = []
+        for slot, route in enumerate(self.slot_paths):
+            k = int(self.slot_k[slot])
+            if self.pool[k] != "ct":
+                continue
+            source = self.stock_index.get((self.edges["tail"][route[0]], k))
+            dest = self.edges["head"][route[-1]]
+            stock_index = self.stock_index.get((dest, k))
+            if source is not None and stock_index is not None:
+                self.semi_routes.append((slot, source, dest, stock_index, k, route))
         for slot, group, source, route in self.routes:
             if not self.nuclear_slots[slot]:
                 self.route_choices.setdefault((int(self.slot_edge[slot]), group), []).append((slot, route))
@@ -309,10 +365,11 @@ class BaseAgent:
         """
         horizon = min(self.T - week + 1, 32)
         arrivals = [[] for _ in self.groups]
-        self._node_arrivals = []
         delivered = np.zeros((len(self.routes), horizon + 1))
         route_j = {r[0]: j for j, r in enumerate(self.routes)}
         events, book = {}, []
+        self._lng_events = {g: [] for g in self.lng_groups}
+        self._lng_dispatch_events = {}
 
         # Lot: cohort week, commodity, lane, next edge, quantity, candidate tag.
         def finish(t, k, lane, edge, q, tag):
@@ -324,9 +381,14 @@ class BaseAgent:
                 dest = self.edges["head"][edge]
                 g = self.group_for.get((dest, k))
                 if g is not None:
+                    if self.options["lng_terminal_weight"] > 0 and g in self.lng_groups:
+                        event = (t - week + 1, dest, q)
+                        if tag == -1:
+                            self._lng_events[g].append(event)
+                        elif tag >= 0:
+                            self._lng_dispatch_events.setdefault(tag, []).append(event)
                     eta = t - week + 1 + (dest != self.groups[g][1])
                     if tag == -1:
-                        self._node_arrivals.append((t - week + 1, dest, k, q))
                         arrivals[g].append((eta, q))
                     elif tag >= 0 and 0 <= eta <= horizon:
                         delivered[tag, int(eta)] += q
@@ -463,6 +525,182 @@ class BaseAgent:
         self._forecast_eta = {r[0]: etas[j] for j, r in enumerate(self.routes)}
         return arrivals, fractions, etas
 
+    def _reserve_signals(self, group, remaining, rate, inventory, arrivals, eta, bounds):
+        """Extra coverage in weeks, using only the existing public ETA forecast.
+
+        ETA already enters the coverage target. Delay below measures only its excess
+        over nominal transit, and all three signals are capped at twelve weeks.
+        Negative weights let the search reduce excess stock when a signal rises.
+        """
+        routes = [
+            (float(eta[j]), float(sum(self.nominal_tau[route])))
+            for j, (slot, g, source, route) in enumerate(self.routes)
+            if g == group and bounds[j][1] > 0 and np.isfinite(eta[j]) and eta[j] <= remaining
+        ]
+        signals = np.zeros(3)
+        if routes and rate > 1e-9:
+            fastest = min(t for t, _ in routes)
+            delay = min(max(0.0, t - nominal) for t, nominal in routes)
+            spread = max(t for t, _ in routes) - fastest
+            inbound = sum(q for t, q in arrivals if t <= fastest)
+            shortage = max(0.0, fastest - (inventory + inbound) / rate)
+            signals = np.clip([delay, spread, shortage], 0.0, 12.0)
+        return signals
+
+    def _adaptive_reserve(self, group, remaining, rate, inventory, arrivals, eta, bounds):
+        signals = self._reserve_signals(group, remaining, rate, inventory, arrivals, eta, bounds)
+        extra = self.options["lng_reserve_weight"] if group in self.lng_groups else 0.0
+        return float(
+            min(
+                remaining,
+                np.clip(self.reserve + self.reserve_weights @ signals + extra, self.reserve_min, self.reserve_max),
+            )
+        )
+
+    def _adaptive_blend(self, group, remaining, rate, inventory, arrivals, eta, bounds):
+        if (
+            self.options["lp_shortage_weight"] == 0
+            and self.options["lp_delay_weight"] == 0
+            and (group not in self.lng_groups or self.options["lng_lp_weight"] == 0)
+        ):
+            return self.blend
+        delay, _, shortage = self._reserve_signals(group, remaining, rate, inventory, arrivals, eta, bounds)
+        value = self.blend + self.options["lp_shortage_weight"] * min(1.0, shortage / 4.0)
+        value += self.options["lp_delay_weight"] * min(1.0, delay / 4.0)
+        if group in self.lng_groups:
+            value += self.options["lng_lp_weight"]
+        return float(np.clip(value, 0.0, 1.0))
+
+    def _grid_supply(self, g, stock, events, edge_cap, tau, mask, horizon):
+        """Cumulative grid-accessible LNG, forwarding terminal arrivals next week."""
+        _, grid, k, _, _, indices = self.groups[g]
+        grid_index = self.stock_index[grid, k]
+        balance = {i: float(stock[i]) for i in indices}
+        deliveries = np.zeros(horizon + 1)
+        due = {}
+        for t, node, qty in events:
+            due.setdefault(max(1, int(np.ceil(t))), []).append((node, qty))
+        for t in range(1, horizon + 1):
+            for slot, group, _ in self.internal:
+                if group != g or not mask[slot]:
+                    continue
+                e = int(self.slot_edge[slot])
+                source = self.stock_index[self.edges["tail"][e], k]
+                request = sum(self.cap[s] * mask[s] for s in np.flatnonzero(self.slot_edge == e))
+                cap = min(self.cap[slot], max(0.0, edge_cap[e]) * self.cap[slot] / max(request, 1e-9))
+                q = min(balance[source], cap)
+                balance[source] -= q
+                due.setdefault(t + max(1, int(np.ceil(tau[e]))), []).append((grid, q))
+            for node, qty in due.get(t, []):
+                index = self.stock_index.get((node, k))
+                if index in balance:
+                    balance[index] += qty
+            deliveries[t] = balance[grid_index]
+        return deliveries
+
+    def _lng_curves(self, stock, edge_cap, tau, mask, horizon, bounds):
+        supply, fractions = {}, {}
+        for g in self.lng_groups:
+            supply[g] = self._grid_supply(g, stock, self._lng_events[g], edge_cap, tau, mask, horizon)
+        for j, events in self._lng_dispatch_events.items():
+            g = self.routes[j][1]
+            if bounds[j][1] > 0:
+                extra = self._grid_supply(g, stock, self._lng_events[g] + events, edge_cap, tau, mask, horizon)
+                fractions[j] = np.clip((extra - supply[g]) / bounds[j][1], 0.0, 1.0)
+        return supply, fractions
+
+    def _coverage_target(self, g, cover, rate, inventory, arrivals, lng_supply, horizon):
+        incoming = sum(q for t, q in arrivals if t <= cover)
+        floor = self.options["lng_ration_weight"] * self.lng_floor[g] if g in self.lng_groups else 0.0
+        target = max(0.0, rate * cover + floor - inventory - incoming)
+        if g in lng_supply:
+            available = lng_supply[g][min(horizon, max(1, int(np.ceil(cover))))]
+            accessible_target = max(0.0, rate * cover + floor - available)
+            weight = self.options["lng_terminal_weight"]
+            target = (1.0 - weight) * target + weight * accessible_target
+        return target
+
+    @staticmethod
+    def _weighted_allocation(request, priority, budget):
+        """Capped proportional allocation; never create stock or exceed a request."""
+        request = np.maximum(np.asarray(request, dtype=float), 0.0)
+        allocated = np.zeros_like(request)
+        left = max(0.0, min(float(budget), float(request.sum())))
+        weights = request * np.exp(np.clip(priority, -4.0, 4.0))
+        for _ in range(len(request) + 1):
+            active = request - allocated > 1e-9
+            if left <= 1e-9 or not np.any(active):
+                break
+            share = left * weights[active] / max(weights[active].sum(), 1e-9)
+            taken = np.minimum(request[active] - allocated[active], share)
+            allocated[active] += taken
+            left = max(0.0, left - float(taken.sum()))
+        return allocated
+
+    def _semiconductor_priorities(self, flows, obs, tau, edge_cap):
+        weight = self.options["semi_allocation_weight"]
+        if weight == 0 or not self.semi_routes:
+            return flows
+        desired, priorities, sources = {}, {}, {}
+        remaining = self.T - int(obs["week"][0]) + 1
+        for slot, source, dest, stock_index, k, route in self.semi_routes:
+            if not (obs["stock.qty.observed"][source] and obs["stock.qty.observed"][stock_index]):
+                continue
+            lead = min(8, max(1, int(np.ceil(sum(tau[e] for e in route))) + 1), remaining)
+            commodity = self.commodity_names[k]
+            sink = self.sink_position.get((dest, k))
+            need, value = 0.0, float(self.value[k])
+            if sink is not None:
+                forecast = obs["demand_forecast.qty"][sink, :lead]
+                seen = obs["demand_forecast.qty.observed"][sink, :lead] == 1
+                if not np.all(seen):
+                    continue
+                need = float(forecast.sum())
+                if obs["backlog.qty.observed"][sink]:
+                    need += float(obs["backlog.qty"][sink])
+                value = float(self.sink_penalty[sink])
+            elif dest in self.fab_position:
+                raw = self.raw_nodes[dest]["fab"]
+                pos = self.fab_position[dest]
+                capacity = self._read(obs, "graph_now.fab.cap_eff", raw["cap0"])[pos]
+                need = float(capacity) * min(lead + self.reserve, remaining)
+                product = raw["product"].removesuffix("_raw")
+                if product in self.commodity_names:
+                    value = float(self.value[self.commodity_names.index(product)])
+            elif dest in self.osat_position:
+                raw = self.raw_nodes[dest]["osat"]
+                pos = self.osat_position[dest]
+                capacity = self._read(obs, "graph_now.osat.thr_eff", raw["thr"])[pos]
+                need = float(capacity) * min(lead + self.reserve, remaining)
+                product = raw["packages"].get(commodity, commodity)
+                value = float(self.value[self.commodity_names.index(product)])
+            else:
+                continue
+            shortage = np.clip((need - float(obs["stock.qty"][stock_index])) / max(need, 1.0), -1.0, 1.0)
+            score = self.options["semi_shortage_weight"] * shortage
+            score += self.options["semi_value_weight"] * np.log1p(max(0.0, value) / 10000.0)
+            score -= self.options["semi_delay_weight"] * min(1.0, sum(tau[e] for e in route) / 8.0)
+            desired[slot] = min(float(flows[slot]), max(0.0, edge_cap[self.slot_edge[slot]]))
+            priorities[slot] = float(score)
+            sources.setdefault(source, []).append(slot)
+        allocated = dict(desired)
+        for source, slots in sources.items():
+            # Unknown destinations keep their requests and their stock reservation.
+            all_slots = [r[0] for r in self.semi_routes if r[1] == source]
+            reserved = sum(flows[s] for s in all_slots if s not in desired)
+            budget = max(0.0, float(obs["stock.qty"][source]) - reserved)
+            values = self._weighted_allocation([desired[s] for s in slots], [priorities[s] for s in slots], budget)
+            allocated.update(zip(slots, values))
+        for edge in {int(self.slot_edge[s]) for s in allocated}:
+            slots = [s for s in allocated if self.slot_edge[s] == edge]
+            reserved = sum(flows[s] for s in np.flatnonzero(self.slot_edge == edge) if s not in allocated)
+            budget = max(0.0, float(edge_cap[edge]) - reserved)
+            values = self._weighted_allocation([allocated[s] for s in slots], [priorities[s] for s in slots], budget)
+            allocated.update(zip(slots, values))
+        for slot, qty in allocated.items():
+            flows[slot] = (1.0 - weight) * flows[slot] + weight * qty
+        return flows
+
     def act(self, observation):
         obs = observation
         flows = self.cap * obs["action_mask"]
@@ -518,6 +756,9 @@ class BaseAgent:
             route_cost.append(sum(cost[e] + tariff[e, k] * self.value[k] for e in route) / 1e6)
         arrivals, arrival_fraction, eta = self._forecast(obs, week, edge_cap, tau, bounds)
         horizon = min(remaining, 20)
+        lng_supply, lng_fraction = {}, {}
+        if self.options["lng_terminal_weight"] > 0:
+            lng_supply, lng_fraction = self._lng_curves(stock, edge_cap, tau, obs["action_mask"], horizon, bounds)
         rows, limits = [], []
         for source in sorted({r[2] for r in self.routes}):
             rows.append([float(r[2] == source) for r in self.routes])
@@ -527,9 +768,9 @@ class BaseAgent:
             limits.append(max(0.0, edge_cap[edge]))
         for g in range(len(self.groups)):
             eligible = [eta[j] for j, r in enumerate(self.routes) if r[1] == g and bounds[j][1] > 0]
-            cover = min(remaining, max(eligible, default=horizon) + self.reserve)
-            incoming = sum(q for t, q in arrivals[g] if t <= cover)
-            target = max(0.0, rate[g] * cover - inventory[g] - incoming)
+            reserve = self._adaptive_reserve(g, remaining, rate[g], inventory[g], arrivals[g], eta, bounds)
+            cover = min(remaining, max(eligible, default=horizon) + reserve)
+            target = self._coverage_target(g, cover, rate[g], inventory[g], arrivals[g], lng_supply, horizon)
             rows.append([float(r[1] == g) for r in self.routes])
             limits.append(target)
         shortage_rows, penalties = [], []
@@ -539,9 +780,22 @@ class BaseAgent:
                 # Cargo in a distant queue cannot cover this week's shortage.
                 # Apply the same arrival cutoff to existing and new shipments.
                 need -= sum(q for arrival, q in arrivals[g] if arrival <= t)
-                shortage_rows.append(
-                    [-float(arrival_fraction[j, t]) if r[1] == g else 0.0 for j, r in enumerate(self.routes)]
-                )
+                coefficients = [-float(arrival_fraction[j, t]) if r[1] == g else 0.0 for j, r in enumerate(self.routes)]
+                if g in self.lng_groups:
+                    floor = self.options["lng_ration_weight"] * self.lng_floor[g] if t < remaining else 0.0
+                    need += floor
+                    if g in lng_supply:
+                        weight = self.options["lng_terminal_weight"]
+                        need = (1.0 - weight) * need + weight * (rate[g] * t + floor - lng_supply[g][t])
+                        coefficients = [
+                            (1.0 - weight) * old - weight * float(lng_fraction[j][t])
+                            if r[1] == g and j in lng_fraction
+                            else (1.0 - weight) * old
+                            if r[1] == g
+                            else 0.0
+                            for j, (r, old) in enumerate(zip(self.routes, coefficients))
+                        ]
+                shortage_rows.append(coefficients)
                 limits.append(-need)
                 penalties.append(group[4] / 1e6 * self.discount ** (t - 1))
         m = len(shortage_rows)
@@ -561,7 +815,10 @@ class BaseAgent:
             for j, (slot, group, source, route) in enumerate(self.routes):
                 # Keep part of the template request: current delays do not predict
                 # future closures, and pipeline estimates can be optimistic.
-                flows[slot] = (1 - self.blend) * flows[slot] + self.blend * max(0.0, min(result.x[j], bounds[j][1]))
+                blend = self._adaptive_blend(
+                    group, remaining, rate[group], inventory[group], arrivals[group], eta, bounds
+                )
+                flows[slot] = (1 - blend) * flows[slot] + blend * max(0.0, min(result.x[j], bounds[j][1]))
         else:
             self.failures += 1
         # Avoid throwing delivered fuel away when the receiving grid is full.
@@ -573,232 +830,5 @@ class BaseAgent:
         # Restore it before reserving shared capacity for routing decisions.
         flows[self.nuclear_slots] = self.cap[self.nuclear_slots] * obs["action_mask"][self.nuclear_slots]
         flows = self._reroute(flows, obs, week, tau, waits, edge_cap, cost, tariff)
+        flows = self._semiconductor_priorities(flows, obs, tau, edge_cap)
         return {"flows": flows}
-
-
-class Agent(BaseAgent):
-    """Receding-horizon fuel plan with separate terminal/grid inventory balances.
-
-    Future supply/capacity are approximations of public current observations.
-    Nuclear and semiconductor requests retain v8 behavior. Execute only step zero.
-    """
-
-    def __init__(self, config):
-        super().__init__(config)
-        self.options = dict(PARAMS)
-        self.mpc_failures = 0
-        self.mpc_solves = 0
-        self._supply_pairs = [tuple(pair) for pair in config["layout"]["supply_slots"]]
-        raw = config["static"]["instance"]["nodes"]
-        names = config["static"]["commodities"]["id"]
-        self._stock_limits = np.array(
-            [raw[n]["stock"][names[k]]["storage"] for n, k in config["layout"]["stock_slots"]], dtype=float
-        )
-        self._holding = np.array(
-            [raw[n]["stock"][names[k]].get("holding_cost", 0.0) for n, k in config["layout"]["stock_slots"]],
-            dtype=float,
-        )
-
-    def act(self, observation):
-        baseline = super().act(observation)["flows"]
-        if self.options["mpc_blend"] == 0 or not self.routes:
-            return {"flows": baseline}
-        planned = self._plan(observation, baseline)
-        if planned is None:
-            self.mpc_failures += 1
-            return {"flows": baseline}
-        blend = self.options["mpc_blend"]
-        flows = baseline.copy()
-        for slot, qty in planned.items():
-            flows[slot] = (1 - blend) * baseline[slot] + blend * qty
-        return {"flows": flows}
-
-    def _plan(self, obs, baseline):
-        H = min(int(round(self.options["planning_horizon"])), self.T - int(obs["week"][0]) + 1)
-        if H < 1:
-            return None
-        # External routes plus terminal-to-grid edges; nuclear is held fixed.
-        routes = [
-            (slot, group, source, route) for slot, group, source, route in self.routes if not self.nuclear_slots[slot]
-        ]
-        routes += [
-            (
-                slot,
-                group,
-                self.stock_index[self.edges["tail"][self.slot_edge[slot]], int(self.slot_k[slot])],
-                [int(self.slot_edge[slot])],
-            )
-            for slot, group, _ in self.internal
-            if not self.nuclear_slots[slot]
-        ]
-        if not routes:
-            return {}
-        slots = {r[0] for r in routes}
-        pairs = sorted(
-            {(self.edges["tail"][r[3][0]], int(self.slot_k[r[0]])) for r in routes}
-            | {(self.edges["head"][r[3][-1]], int(self.slot_k[r[0]])) for r in routes}
-        )
-        if any(obs["stock.qty.observed"][self.stock_index[p]] != 1 for p in pairs):
-            return None
-        pair_pos = {pair: i for i, pair in enumerate(pairs)}
-        R, N = len(routes), len(pairs)
-        group_at = {(g[1], g[2]): index for index, g in enumerate(self.groups)}
-        cap = np.maximum(0, self._read(obs, "graph_now.u", self.nominal_cap))
-        tau = self._read(obs, "graph_now.tau", self.nominal_tau)
-        freight = self._read(obs, "graph_now.c", self.nominal_cost)
-        tariff = self._read(obs, "graph_now.tariff", 0.0)
-        generation = self._read(obs, "graph_now.grid.G_bar", self.grid_nominal)
-        supply = self._read(obs, "graph_now.supply.avail", 0.0)
-        resource_caps, _, _, _, _ = self._routing_state(baseline, obs, cap)
-        protected_load = {}
-        for slot, qty in enumerate(baseline):
-            if slot not in slots:
-                for resource in self._resources(self.slot_paths[slot], int(self.slot_k[slot])):
-                    protected_load[resource] = protected_load.get(resource, 0.0) + qty
-        incoming = np.zeros((H, N))
-        for eta, node, k, qty in self._node_arrivals:
-            pair = (node, k)
-            t = max(0, int(np.ceil(eta)) - 1)
-            if pair in pair_pos and t < H:
-                incoming[t, pair_pos[pair]] += qty
-        # x[t,route], inventory[t,node], unmet burn[t,node], disposal[t,node], deviations.
-        INV, U, W, D = H * R, H * (R + N), H * (R + 2 * N), H * (R + 3 * N)
-        size = D + R
-        objective = np.zeros(size)
-        bounds = [(0.0, None)] * size
-        eq_rows, eq_cols, eq_values, rhs = [], [], [], []
-        ub_rows, ub_cols, ub_values, ub_rhs = [], [], [], []
-
-        def eq(row, col, val):
-            eq_rows.append(row)
-            eq_cols.append(col)
-            eq_values.append(val)
-
-        def ub(terms, limit):
-            row = len(ub_rhs)
-            for col, val in terms:
-                ub_rows.append(row)
-                ub_cols.append(col)
-                ub_values.append(val)
-            ub_rhs.append(max(0.0, float(limit)))
-
-        initial = np.array([obs["stock.qty"][self.stock_index[p]] for p in pairs])
-        # Reserve v8's other flows on shared edges and stock before allocating.
-        other_edge, other_stock = {}, {}
-        for slot, q in enumerate(baseline):
-            if slot in slots:
-                continue
-            e, k = int(self.slot_edge[slot]), int(self.slot_k[slot])
-            other_edge[e] = other_edge.get(e, 0.0) + q
-            p = (self.edges["tail"][e], k)
-            other_stock[p] = other_stock.get(p, 0.0) + q
-        supply_at = {p: max(0.0, supply[j]) * self.options["supply_factor"] for j, p in enumerate(self._supply_pairs)}
-        rates = np.zeros(N)
-        for i, pair in enumerate(pairs):
-            g = group_at.get(pair)
-            if g is not None:
-                group = self.groups[g]
-                rates[i] = group[3] * generation[group[0]] * self.options["demand_factor"]
-        for t in range(H):
-            weight = self.discount**t
-            for i, pair in enumerate(pairs):
-                row = t * N + i
-                s = self.stock_index[pair]
-                eq(row, INV + row, 1.0)
-                if t:
-                    eq(row, INV + row - N, -1.0)
-                eq(row, U + row, -1.0)
-                eq(row, W + row, 1.0)
-                rhs.append((initial[i] if t == 0 else 0.0) + incoming[t, i] + supply_at.get(pair, 0.0) - rates[i])
-                bounds[INV + row] = (0.0, self._stock_limits[s])
-                bounds[U + row] = (0.0, rates[i])
-                g = group_at.get(pair)
-                penalty = self.groups[g][4] / 1e6 if g is not None else 0.0
-                objective[U + row] = penalty * weight
-                objective[W + row] = (0.0 if pair in supply_at else max(penalty, 1.0)) * weight
-                objective[INV + row] = self._holding[s] / 1e6 * weight
-                # Bounded terminal stock value prevents exhausting the planning horizon.
-                if t == H - 1 and g is not None:
-                    target = min(self._stock_limits[s], rates[i] * self.options["terminal_weeks"])
-                    # Extra stock above target has no speculative terminal reward.
-                    bounds[INV + row] = (0.0, self._stock_limits[s])
-                    col = len(objective)
-                    objective = np.append(objective, self.options["terminal_weight"] * penalty)
-                    bounds.append((0.0, target))
-                    ub([(INV + row, -1.0), (col, -1.0)], -target)
-                    # ub helper clamps resource limits; restore this negative target.
-                    ub_rhs[-1] = -target
-            for j, (slot, g, source, route) in enumerate(routes):
-                k = int(self.slot_k[slot])
-                col = t * R + j
-                source_pair = (self.edges["tail"][route[0]], k)
-                dest_pair = (self.edges["head"][route[-1]], k)
-                si, di = pair_pos[source_pair], pair_pos[dest_pair]
-                eq(t * N + si, col, 1.0)
-                eta = self._forecast_eta.get(slot, sum(tau[e] for e in route))
-                if len(route) == 1 and source_pair in group_at:
-                    eta = tau[route[0]]
-                # Explicit transfer means terminal arrivals no longer include grid's +1 week.
-                if slot in self._forecast_eta and dest_pair not in group_at:
-                    eta -= 1
-                delay = max(1, int(np.ceil(eta + self.options["eta_margin"])))
-                arrival = t + delay - 1
-                if arrival < H:
-                    eq(arrival * N + di, col, -1.0)
-                limit = min(self.cap[slot], min(cap[e] for e in route)) if obs["action_mask"][slot] else 0.0
-                if arrival >= H:
-                    limit = 0.0
-                bounds[col] = (0.0, max(0.0, limit))
-                objective[col] = weight * sum(freight[e] + tariff[e, k] * self.value[k] for e in route) / 1e6
-                if t == 0:
-                    objective[D + j] = self.options["change_penalty"] * self.groups[g][4] / 1e6
-                    ub([(col, 1.0), (D + j, -1.0)], baseline[slot])
-                    ub([(col, -1.0), (D + j, -1.0)], -baseline[slot])
-                    ub_rhs[-1] = -baseline[slot]
-            for pair in pairs:
-                i = pair_pos[pair]
-                terms = [
-                    (t * R + j, 1.0)
-                    for j, r in enumerate(routes)
-                    if (self.edges["tail"][r[3][0]], int(self.slot_k[r[0]])) == pair
-                ]
-                if t:
-                    terms.append((INV + (t - 1) * N + i, -1.0))
-                ub(terms, initial[i] - other_stock.get(pair, 0.0) if t == 0 else 0.0)
-            # Conservative route throughput: share every downstream edge/pool,
-            # not just entry capacity. ETA accounts for visible queued cargo.
-            resources = set(
-                resource for slot, _, _, route in routes for resource in self._resources(route, int(self.slot_k[slot]))
-            )
-            for resource in resources:
-                ub(
-                    [
-                        (t * R + j, 1.0)
-                        for j, (slot, _, _, route) in enumerate(routes)
-                        if resource in self._resources(route, int(self.slot_k[slot]))
-                    ],
-                    resource_caps[resource] - protected_load.get(resource, 0.0),
-                )
-        matrix = coo_matrix((eq_values, (eq_rows, eq_cols)), shape=(H * N, len(objective))).tocsr()
-        inequalities = coo_matrix((ub_values, (ub_rows, ub_cols)), shape=(len(ub_rhs), len(objective))).tocsr()
-        result = linprog(
-            objective,
-            A_eq=matrix,
-            b_eq=rhs,
-            A_ub=inequalities,
-            b_ub=ub_rhs,
-            bounds=bounds,
-            method="highs",
-            options={"time_limit": 0.45},
-        )
-        if not result.success or not np.all(np.isfinite(result.x)):
-            return None
-        self.mpc_solves += 1
-        return {
-            slot: (
-                min(baseline[slot], obs["stock.qty"][source])
-                if self._forecast_eta.get(slot, 0.0) + self.options["eta_margin"] > H
-                else max(0.0, min(result.x[j], self.cap[slot]))
-            )
-            for j, (slot, _, source, _) in enumerate(routes)
-        }

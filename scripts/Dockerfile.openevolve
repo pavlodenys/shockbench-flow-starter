@@ -1,0 +1,9 @@
+FROM shockbench-flow-starter:local
+
+# Keep the benchmark's installed dependency versions while adding the search tool.
+RUN /opt/venv/bin/python -c "import importlib.metadata as m; from pathlib import Path; Path('/tmp/benchmark-constraints.txt').write_text('\n'.join(d.metadata['Name'] + '==' + d.version for d in m.distributions() if d.metadata['Name'] != 'sbf-starter'))"
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --python /opt/venv/bin/python \
+    --constraint /tmp/benchmark-constraints.txt 'openevolve==0.4.0'
+
+ENTRYPOINT ["uv", "run", "--no-sync", "python", "examples/10_openevolve/run.py"]

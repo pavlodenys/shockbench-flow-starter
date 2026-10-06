@@ -599,6 +599,17 @@ class Agent(BaseAgent):
             dtype=float,
         )
 
+        self._ration_thresholds = {}
+        psi = config["static"]["instance"]["params"]["psi"]
+        commodity_ids = {name: k for k, name in enumerate(names)}
+        for node, attrs in enumerate(raw):
+            grid = attrs.get("grid")
+            if grid and grid.get("rationed") in commodity_ids:
+                name = grid["rationed"]
+                threshold = psi * grid["ibar"].get(name, 0.)
+                if threshold > 0:
+                    self._ration_thresholds[node, commodity_ids[name]] = threshold
+
     def act(self, observation):
         baseline = super().act(observation)["flows"]
         if self.options["mpc_blend"] == 0 or not self.routes:
@@ -714,6 +725,19 @@ class Agent(BaseAgent):
                 bounds[U + row] = (0.0, rates[i])
                 g = group_at.get(pair)
                 penalty = self.groups[g][4] / 1e6 if g is not None else 0.0
+                threshold = self._ration_thresholds.get(pair)
+                if threshold is not None:
+                    # Simulator rationing depends on stock at START of week.
+                    # Same-week deliveries cannot undo this week's rationing.
+                    coefficient = rates[i] / threshold
+                    terms = [(U + row, -1.)]
+                    limit = -rates[i]
+                    if t:
+                        terms.append((INV + row - N, -coefficient))
+                    else:
+                        limit += coefficient * initial[i]
+                    ub(terms, limit)
+                    ub_rhs[-1] = limit
                 objective[U + row] = penalty * weight
                 objective[W + row] = (0.0 if pair in supply_at else max(penalty, 1.0)) * weight
                 objective[INV + row] = self._holding[s] / 1e6 * weight

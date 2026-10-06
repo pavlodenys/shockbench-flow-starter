@@ -187,6 +187,11 @@ fits only the network it was made on: use `--task=small` for one you will submit
 | [06_policy_search.py](examples/06_policy_search.py)     | an evolutionary search over an agent's numbers, and where an LLM proposer fits             |
 | [07_dashboard.py](examples/07_dashboard.py)             | compare mine and template: network map, dashboards and a GIF for each agent                 |
 
+For a local Ollama/OpenEvolve search over `mine` parameters, see
+[docs/OPENEVOLVE.md](docs/OPENEVOLVE.md). On Windows, run
+`.\scripts\openevolve-docker.ps1 -Episodes 8 -Iterations 10` with Ollama and Docker Desktop running.
+The search writes candidates for independent validation to `outputs/10_openevolve/`.
+
 ```bash
 python examples/03_heuristic_agent.py --task=small --episodes=6
 ```

@@ -1,0 +1,20 @@
+{
+  "reserve_weeks": 4.0,
+  "discount": 0.9,
+  "allocation_blend": 0.7,
+  "delay_weight": 0.0,
+  "spread_weight": 0.0,
+  "shortage_weight": 0.0,
+  "reserve_min": 0.0,
+  "reserve_max": 8.0,
+  "lp_shortage_weight": 0.0,
+  "lp_delay_weight": 0.0,
+  "lng_reserve_weight": 0.0,
+  "lng_ration_weight": 0.0,
+  "lng_terminal_weight": 0.0,
+  "lng_lp_weight": 0.0,
+  "semi_allocation_weight": 0.0,
+  "semi_shortage_weight": 0.0,
+  "semi_value_weight": 0.0,
+  "semi_delay_weight": 0.0
+}
