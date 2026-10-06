@@ -2,23 +2,30 @@
 
     uv run python examples/09_explorer.py
     uv run python examples/09_explorer.py --agents=template,heuristic,mine --episodes=29,5 --quick
+    uv run python examples/09_explorer.py --agents=mine --episodes=29 --quick --live
 
 Plays each agent on each episode, then writes explorer.html: the map of the network, what the agent observes
 each week (named in plain words, with the field's code beside it), what it does, and what it costs. Open the file in a
 browser; it needs no server. The labels are Ukrainian and written for Tiny; on Small and Full the nodes and edges show
 their codes. The naive rule takes about 30 s on Tiny the first time without --quick, then comes from the cache.
+With --live, a local server publishes each completed week at http://localhost:8765/explorer.html. Use one agent and
+one episode; the final naive comparison is added after the agent finishes. In Docker, publish 127.0.0.1:8765:8765.
 """
 
 import json
 import re
+import tempfile
+import threading
 import time
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import fire
 import gymnasium as gym
 import numpy as np
 from shockbench_flow_agent import NAIVE_REPLICATIONS, QUICK
-from shockbench_flow_gym import dashboard  # also registers the ShockBench/* environments
+from shockbench_flow_gym import agent_config_from_reset, dashboard  # also registers the ShockBench/* environments
+from shockbench_flow_gym.wrappers import EpisodeRecorder
 
 from sbf_starter import env_id
 from sbf_starter.agents import load
@@ -281,7 +288,11 @@ class Exporter:
         else:
             where = subj
         if sig == "prohibited":
-            title = f"Заборона набула чинності: {where}" if before in (0, None) and e["note"] != "in force" else f"Діє заборона: {where}"
+            title = (
+                f"Заборона набула чинності: {where}"
+                if before in (0, None) and e["note"] != "in force"
+                else f"Діє заборона: {where}"
+            )
         elif sig == "lifted":
             title = f"Заборону знято: {where}"
         elif sig == "capacity":
@@ -292,15 +303,22 @@ class Exporter:
         elif sig == "grid":
             title = f"Генерація в мережі «{where}»: {before:.1f} → {after:.1f}"
         elif sig == "chokepoint":
-            title = f"Протока «{where}» відкрита на {after:.1%} (було {before:.1%})"
+            previous = f" (було {before:.1%})" if before is not None else ""
+            title = f"Протока «{where}» відкрита на {after:.1%}{previous}"
         elif sig == "war_risk":
             old = {"none": "немає", "red_sea": "Червоне море", "hormuz_2026": "Ормуз 2026"}
             title = f"Воєнний ризик у протоці: {old.get(before, before)} → {old.get(after, after)}"
         elif sig.startswith("message"):
             m = re.match(r"(\w+) (\w+) on (\w+) (.+?)(?: \((\w+)\))?$", subj)
-            title = {"message": "Нове повідомлення", "message_update": "Оновлення повідомлення", "message_ended": "Повідомлення закрито"}[sig]
+            title = {
+                "message": "Нове повідомлення",
+                "message_update": "Оновлення повідомлення",
+                "message_ended": "Повідомлення закрито",
+            }[sig]
             if m:
-                ch = ["tariff_formal", "tariff_informal", "tariff_final", "sanction_legal", "ties_threat", "mid_threat"].index(m[1])
+                ch = [
+                    "tariff_formal", "tariff_informal", "tariff_final", "sanction_legal", "ties_threat", "mid_threat"
+                ].index(m[1])
                 target = m[4]
                 if m[3] == "edge":
                     target = self.edge(self.eid.index(target))
@@ -331,9 +349,15 @@ def agent_data(rec: dict, ex: Exporter, net: dict) -> dict:
     def rows(prefix, fields):
         """The padded lists of a prefix as one list of row-lists per week, live entries only."""
         out = []
+        visible = next((f for f in fields if f"{prefix}.{f}.observed" in obs), None)
+        if visible is None:
+            raise KeyError(f"No visibility mask for {prefix}")
         for w in range(T):
-            live = np.asarray(obs[f"{prefix}.{fields[0]}.observed"])[w] == 1
-            out.append([[obs[f"{prefix}.{f}"][w][i].item() for f in fields] for i in np.where(live)[0]])
+            live = np.asarray(obs[f"{prefix}.{visible}.observed"])[w] == 1
+            out.append([
+                [obs[f"{prefix}.{f}"][w][i].item() if f"{prefix}.{f}" in obs else None for f in fields]
+                for i in np.where(live)[0]
+            ])
         return out
 
     def observed_or_none(prefix, field, w, i):
@@ -352,7 +376,10 @@ def agent_data(rec: dict, ex: Exporter, net: dict) -> dict:
     prohibited = np.asarray(obs["graph_now.prohibited"])[:T]
     tariff = np.asarray(obs["graph_now.tariff"])[:T]
     d["prohibited"] = [[[int(e), int(k)] for e, k in zip(*np.where(prohibited[w] == 1))] for w in range(T)]
-    d["tariff"] = [[[int(e), int(k), float(tariff[w][e][k])] for e, k in zip(*np.where(tariff[w] > 0))] for w in range(T)]
+    d["tariff"] = [
+        [[int(e), int(k), float(tariff[w][e][k])] for e, k in zip(*np.where(tariff[w] > 0))]
+        for w in range(T)
+    ]
     d["supply"] = col("graph_now.supply.avail")
     d["fabCap"] = col("graph_now.fab.cap_eff")
     d["fabR"] = col("graph_now.fab.R")
@@ -372,7 +399,23 @@ def agent_data(rec: dict, ex: Exporter, net: dict) -> dict:
     d["lastShed"] = col("last_week.shed.qty")
     d["lastCosts"] = col("last_week.cost_components")
     d["pipeline"] = rows("pipeline", ["edge", "k", "qty", "arrival_week"])
-    d["queue"] = rows("queue_lots", ["lot_id", "chokepoint", "k", "qty", "lane", "next_edge", "arrival_week", "dispatch_week"])
+    if "queue_lots.chokepoint" in obs:
+        d["queue"] = rows(
+            "queue_lots", ["lot_id", "chokepoint", "k", "qty", "lane", "next_edge", "arrival_week", "dispatch_week"]
+        )
+    else:
+        # Small/Full expose quantity buckets keyed by layout.lot_keys, not per-lot fields.
+        qty = np.asarray(obs["queue_lots.qty"])
+        seen = np.asarray(obs["queue_lots.qty.observed"]) == 1
+        keys = ex.layout["lot_keys"]
+        d["queue"] = []
+        for w in range(T):
+            buckets = np.where(seen[w], qty[w], 0.0).sum(axis=1)
+            d["queue"].append([
+                [None, int(ch), int(k), float(amount), int(lane), int(edge), None, None]
+                for (ch, k, lane, edge), amount in zip(keys, buckets)
+                if amount > 0
+            ])
     d["wip"] = rows("wip", ["node", "k", "qty", "out_week"])
     d["pending"] = rows("pending_prohibitions", ["edge", "k", "effective_week"])
     d["closureEnd"] = rows("closure_end", ["chokepoint", "end_week"])
@@ -411,7 +454,112 @@ def agent_data(rec: dict, ex: Exporter, net: dict) -> dict:
     d["lost"] = col("last_week.sinks.lost", 1)
     d["shed"] = col("last_week.shed.qty", 1)
     assert n_obs == T + 1
-    return {k: clean(v) for k, v in d.items()} | {"J": rec["meta"]["J_cents"] / 100, "salvage": rec["meta"]["salvage_cents"] / 100}
+    return {k: clean(v) for k, v in d.items()} | {
+        "J": rec["meta"]["J_cents"] / 100,
+        "salvage": (rec["meta"].get("salvage_cents") or 0) / 100,
+        "completedWeeks": rec["meta"].get("weeks", T),
+    }
+
+
+def partial_record(ep: dict) -> dict:
+    """Turn the recorder's in-progress episode into a full-length display record."""
+    weeks, total = len(ep["actions"]), ep["meta"]["T"]
+    obs = ep["obs"] + [ep["obs"][-1]] * (total - weeks)
+    actions = ep["actions"] + [
+        {key: np.zeros_like(value) for key, value in ep["actions"][0].items()}
+        for _ in range(total - weeks)
+    ]
+    costs = np.zeros((total, len(ep["meta"]["cost_components"])))
+    costs[:weeks] = ep["costs"]
+    return {
+        "meta": ep["meta"] | {"weeks": weeks, "J_cents": -sum(ep["cents"]), "salvage_cents": 0},
+        "static": ep["static"],
+        "events": ep["events"],
+        "obs": {key: np.stack([row[key] for row in obs]) for key in obs[0]},
+        "action": {key: np.stack([row[key] for row in actions]) for key in actions[0]},
+        "costs": costs,
+        "reward_cents": np.array(ep["cents"] + [0] * (total - weeks)),
+    }
+
+
+def write_page(out: Path, payload: dict, *, live: bool = False) -> None:
+    blob = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    html = (HERE / "09_explorer.html").read_text(encoding="utf-8").replace("__DATA__", blob)
+    page = (
+        '<!doctype html>\n<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"{html}"
+    )
+    (out / "explorer.html.tmp").write_text(page, encoding="utf-8")
+    (out / "explorer.html.tmp").replace(out / "explorer.html")
+    if live:
+        agent = payload["episodes"][0]["agents"][payload["agentOrder"][0]]
+        marker = json.dumps({"weeks": agent["completedWeeks"], "finished": payload.get("finished", False)})
+        (out / "live.json.tmp").write_text(marker, encoding="utf-8")
+        (out / "live.json.tmp").replace(out / "live.json")
+
+
+def run_live(
+    env, name: str, episode: int, seed: int, out: Path, task: str, regime: str, quick: bool,
+    replications: int, n_jobs: int, port: int, delay: float,
+) -> None:
+    if delay < 0:
+        raise ValueError("live_delay must be non-negative")
+    class LiveHandler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(out.resolve()), **kwargs)
+
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-store")
+            super().end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    server = ThreadingHTTPServer(("0.0.0.0", port), LiveHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print(f"live explorer: http://localhost:{port}/explorer.html", flush=True)
+    try:
+        with tempfile.TemporaryDirectory(prefix="sbf-live-") as tmp:
+            recorder = EpisodeRecorder(env, tmp, compress=False)
+            obs, info = recorder.reset(seed=seed, options={"episode": episode})
+            agent = load(name)(agent_config_from_reset(env, obs, info))
+            exporter = Exporter(info["static"], recorder._ep["meta"], dashboard.layout_tables(env.unwrapped.layout))
+            network = exporter.network()
+            for week in range(network["T"]):
+                action = agent.act(obs)
+                obs, _, done, truncated, _ = recorder.step(action)
+                rec = dashboard.load_record(recorder.paths[-1]) if done or truncated else partial_record(recorder._ep)
+                entry = {
+                    "episode": episode,
+                    "agents": {name: agent_data(rec, exporter, network) | {"label": AGENT_LABELS.get(name, name)}},
+                    "events": [exporter.event(e) for e in rec["events"]],
+                    "naive": {"J": None, "costs": [[0] * len(network["costs"])] * network["T"]},
+                }
+                payload = {"task": task, "regime": regime, "quick": quick, "network": network,
+                           "agentOrder": [name], "episodes": [entry], "warWarning": WAR_RISK,
+                           "live": True, "finished": False}
+                write_page(out, payload, live=True)
+                print(f"  episode {episode} {name}: week {week + 1}/{network['T']} ready", flush=True)
+                if done or truncated:
+                    break
+                if delay:
+                    time.sleep(delay)
+            # The reference is only needed for the final comparison, never for live diagnosis.
+            reference = dashboard.record_episode(env, None, seed=seed, options={"episode": episode},
+                                                 naive_replications=replications, n_jobs=n_jobs)
+            entry["naive"] = {"J": reference["meta"]["naive_J_cents"] / 100,
+                              "costs": clean(np.asarray(reference["naive"]["costs"]))}
+            payload["finished"] = True
+            write_page(out, payload, live=True)
+            print(f"finished: {out / 'explorer.html'}", flush=True)
+            print("HTTP server is still running; press Ctrl+C to stop it.", flush=True)
+            while True:
+                time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.shutdown()
 
 
 def main(
@@ -426,6 +574,9 @@ def main(
     regime: str = "standard",
     seed: int = 0,
     out: str | None = None,
+    live: bool = False,
+    live_port: int = 8765,
+    live_delay: float = 0,
 ) -> None:
     """Write explorer.html.
 
@@ -441,6 +592,9 @@ def main(
         regime: the information regime; standard is the scored one.
         seed: the reset's seed.
         out: the run folder (default: outputs/09_explorer/<date_time>).
+        live: publish a diagnostic page after every week (one agent and episode).
+        live_port: HTTP port for the live page; publish this port from Docker.
+        live_delay: optional pause between weeks, useful when inspecting fast agents.
     """
     out = Path(out or f"outputs/09_explorer/{time.strftime('%Y-%m-%d_%H-%M-%S')}")
     out.mkdir(parents=True, exist_ok=True)
@@ -449,9 +603,24 @@ def main(
     if episodes is None:
         chosen = episodes_with_closure(env, count, search=search, min_open=min_open, seed=seed)
     else:
-        chosen = [int(n) for n in str(episodes).split(",")] if not isinstance(episodes, (tuple, list)) else [int(n) for n in episodes]
+        chosen = (
+            [int(n) for n in str(episodes).split(",")]
+            if not isinstance(episodes, (tuple, list))
+            else [int(n) for n in episodes]
+        )
     print(f"episodes {chosen}; agents {names}")
     replications = QUICK["fq_replications"] if quick else NAIVE_REPLICATIONS
+    if live:
+        if len(chosen) != 1 or len(names) != 1:
+            raise ValueError("live mode needs exactly one episode and one agent")
+        try:
+            run_live(
+                env, names[0], chosen[0], seed, out, task, regime, quick,
+                replications, n_jobs, live_port, live_delay,
+            )
+        finally:
+            env.close()
+        return
     exporter, network, data = None, None, []
     for n in chosen:
         entry = {"episode": n, "agents": {}, "events": [], "naive": None}
@@ -470,7 +639,10 @@ def main(
                     "costs": clean(np.asarray(rec["naive"]["costs"])),
                 }
                 entry["events"] = [exporter.event(e) for e in rec["events"]]
-            print(f"  episode {n} {name}: cost ${rec['meta']['J_cents'] / 100:,.0f} ({time.perf_counter() - start:.1f} s)")
+            print(
+                f"  episode {n} {name}: cost ${rec['meta']['J_cents'] / 100:,.0f} "
+                f"({time.perf_counter() - start:.1f} s)"
+            )
         data.append(entry)
     payload = {
         "task": task,
@@ -481,11 +653,8 @@ def main(
         "episodes": data,
         "warWarning": WAR_RISK,
     }
-    blob = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
-    html = (HERE / "09_explorer.html").read_text(encoding="utf-8").replace("__DATA__", blob)
-    page = f'<!doctype html>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n{html}'
-    (out / "explorer.html").write_text(page, encoding="utf-8")
-    print(f"written in {out}: explorer.html ({len(page) / 1e6:.2f} MB)")
+    write_page(out, payload)
+    print(f"written in {out}: explorer.html ({(out / 'explorer.html').stat().st_size / 1e6:.2f} MB)")
 
 
 if __name__ == "__main__":

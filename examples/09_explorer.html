@@ -155,6 +155,8 @@ select { background: var(--surface); border: 1px solid var(--line); border-radiu
 .card > header { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; padding: 12px 14px 0; }
 .card h2 { margin: 0; font-size: 15px; font-weight: 650; }
 .card .body { padding: 12px 14px 14px; min-width: 0; }
+.overview tr[data-episode] { cursor: pointer; }
+.overview tr[data-episode]:hover, .overview tr.current { background: var(--accent-soft); }
 .hint { color: var(--ink2); margin: 0 0 10px; max-width: 78ch; }
 .map-wrap { padding: 4px 6px 8px; }
 #map { width: 100%; height: auto; display: block; touch-action: manipulation; }
@@ -306,6 +308,11 @@ tr.bad td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
   <div class="timeline" id="timeline"></div>
   <div class="tl-legend" id="tlLegend"></div>
 
+  <section class="card overview" id="overviewCard" style="margin:16px 0" aria-label="Порівняння всіх сценаріїв" hidden>
+    <header><h2>Порівняння всіх сценаріїв</h2><div class="field"><label for="selCompare">Порівняти з</label><select id="selCompare"></select></div><span class="sm">Додатна економія означає менші витрати вибраного агента. Клацніть сценарій, щоб переглянути тижні.</span></header>
+    <div class="body" id="overview"></div>
+  </section>
+
   <div class="grid">
     <section class="card" aria-label="Карта мережі">
       <header>
@@ -351,7 +358,7 @@ tr.bad td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
 const D = JSON.parse(document.getElementById("data").textContent);
 const N = D.network, T = N.T;
 const AGENTS = D.agentOrder;
-const S = { ep: 0, agent: AGENTS[0], w: 0, sel: null, tab: "obs", label: "flow", compare: false, onlyDev: false, filt: { bad: true, warn: true, info: true }, play: null };
+const S = { ep: 0, agent: AGENTS[0], compareAgent: AGENTS[1], w: 0, sel: null, tab: "obs", label: "flow", compare: false, onlyDev: false, filt: { bad: true, warn: true, info: true }, play: null };
 const KCOL = ["var(--k0)", "var(--k1)", "var(--k2)", "var(--k3)"];
 const CCOL = ["var(--c0)", "var(--c1)", "var(--c2)", "var(--c3)", "var(--c4)", "var(--c5)", "var(--c6)", "var(--c7)"];
 const ACOL = ["var(--a0)", "var(--a1)", "var(--a2)", "var(--a3)", "var(--a4)"];
@@ -475,7 +482,7 @@ function mistakes(a, w) {
 function problemSeries(a) {
   if (PM.has(a)) return PM.get(a);
   const q = [], en = [], sh = [], mi = [];
-  for (let w = 0; w < T; w++) {
+  for (let w = 0; w < (a.completedWeeks ?? T); w++) {
     q.push(sum(a.queue[w].map((r) => r[3])));
     en.push(sum(a.shed[w]));
     sh.push(a.lost[w][0] || 0);
@@ -566,10 +573,10 @@ function drawDiag() {
 
 /* controls and timeline */
 function buildControls() {
-  $("#subtitle").textContent = `мережа ${N.instance}, ${T} тижнів, режим інформації «${D.regime}»${D.quick ? ", швидка оцінка naive-правила" : ""}`;
+  $("#subtitle").textContent = `мережа ${N.instance}, ${T} тижнів, режим інформації «${D.regime}»${D.quick ? ", швидка оцінка naive-правила" : ""}${D.live ? D.finished ? " · прогін завершено" : ` · LIVE: готово ${A().completedWeeks}/${T} тижнів` : ""}`;
   $("#selEp").innerHTML = D.episodes.map((e, i) => `<option value="${i}">Епізод ${e.episode}</option>`).join("");
   $("#segAgent").innerHTML = AGENTS.map((k) => `<button type="button" data-agent="${esc(k)}" aria-pressed="false"><i style="background:${agentColor(k)}"></i>${esc(D.episodes[0].agents[k].label)}</button>`).join("");
-  $("#rng").max = T;
+  $("#rng").max = D.live ? A().completedWeeks : T;
   $("#tabs").innerHTML = [["obs", "1", "Що бачить агент"], ["act", "2", "Що він робить"], ["res", "3", "Що це коштує"], ["ev", "", "Події й сигнали"], ["gl", "", "Словник полів"]]
     .map(([id, n, t]) => `<button role="tab" data-tab="${id}" aria-selected="false">${n ? `<small>${n}</small>` : ""}${t}</button>`).join("");
 }
@@ -582,6 +589,27 @@ function syncControls() {
   $("#btnPlay").textContent = S.play ? "⏸ Пауза" : "▶ Грати";
   $("#selLabel").value = S.label;
 }
+function drawOverview() {
+  const card = $("#overviewCard");
+  card.hidden = AGENTS.length < 2 || D.live;
+  if (card.hidden) return;
+  if (!S.compareAgent || S.compareAgent === S.agent) S.compareAgent = AGENTS.find((key) => key !== S.agent);
+  const other = S.compareAgent;
+  $("#selCompare").innerHTML = AGENTS.filter((key) => key !== S.agent)
+    .map((key) => `<option value="${esc(key)}">${esc(E().agents[key].label)}</option>`).join("");
+  $("#selCompare").value = other;
+  const rows = D.episodes.map((ep, index) => {
+    const own = ep.agents[S.agent], prior = ep.agents[other];
+    const a = costTotals(own), b = costTotals(prior);
+    return { index, episode: ep.episode, saving: prior.J - own.J,
+      shortage: b[CI.shortage] - a[CI.shortage], shed: b[CI.shed] - a[CI.shed] };
+  }).sort((a, b) => a.saving - b.saving);
+  const improved = rows.filter((r) => r.saving > 1).length;
+  const worsened = rows.filter((r) => r.saving < -1).length;
+  $("#overview").innerHTML = `<p class="sm">${esc(E().agents[S.agent].label)} проти ${esc(E().agents[other].label)}: ${improved} покращено, ${worsened} погіршено, ${rows.length - improved - worsened} без змін. Сортування: найбільші погіршення спочатку.</p>
+    <div class="tbl"><table><tr><th>Сценарій</th><th class="num">Економія загалом</th><th class="num">Економія на дефіциті</th><th class="num">Економія на відключеннях</th></tr>
+    ${rows.map((r) => `<tr data-episode="${r.index}" class="${r.index === S.ep ? "current" : ""}"><td>Епізод ${r.episode}</td><td class="num"><span class="pill ${r.saving > 1 ? "ok" : r.saving < -1 ? "bad" : "mute"}">${usd(r.saving)}</span></td><td class="num">${usd(r.shortage)}</td><td class="num">${usd(r.shed)}</td></tr>`).join("")}</table></div>`;
+}
 function drawTimeline() {
   const a = A(), naive = E().naive.costs.map(sum), mine = costTotals(a), ser = problemSeries(a);
   const W = 1000, H0 = 92, ROW = 9, H = H0 + PORDER.length * ROW + 4, L = 6, R = 6, top = 22, bot = 16, bw = (W - L - R) / T;
@@ -593,17 +621,17 @@ function drawTimeline() {
     s += `<g data-week="${i}" style="cursor:pointer"><rect x="${x}" y="0" width="${bw}" height="${H}" fill="${cur ? "var(--accent-soft)" : "transparent"}"/>`;
     s += `<rect x="${x + 2}" y="${y(v)}" width="${bw - 4}" height="${H0 - bot - y(v)}" rx="2" fill="${agentColor(S.agent)}" opacity="${cur ? 1 : 0.62}"/>`;
     const probs = PORDER.filter((k) => ser[k][i] > 0).map((k) => PNAME[k]);
-    s += `<title>Тиждень ${i + 1}: витрати ${usd(v)}, naive ${usd(naive[i])}${probs.length ? ". Проблеми: " + probs.join(", ") : ""}</title></g>`;
+    s += `<title>Тиждень ${i + 1}: витрати ${usd(v)}${E().naive.J == null ? "" : `, naive ${usd(naive[i])}`}${probs.length ? ". Проблеми: " + probs.join(", ") : ""}</title></g>`;
     if ((i + 1) % 5 === 0 || i === 0) s += `<text class="ax" x="${x + bw / 2}" y="${H0 - 3}" text-anchor="middle" style="font-size:10px">${i + 1}</text>`;
     PORDER.forEach((k, r) => { const lv = ser[k][i]; if (lv > 0) s += `<rect x="${x + 2}" y="${H0 + r * ROW}" width="${bw - 4}" height="${ROW - 2}" rx="2" style="fill:${PCOL[k]};opacity:${0.3 + 0.7 * lv};pointer-events:none"/>`; });
   });
-  s += `<path d="${naive.map((v, i) => `${i ? "L" : "M"}${(L + i * bw + bw / 2).toFixed(1)},${y(v).toFixed(1)}`).join("")}" fill="none" stroke="var(--naive)" stroke-width="1.6" stroke-dasharray="4 3"/>`;
+  if (E().naive.J != null) s += `<path d="${naive.map((v, i) => `${i ? "L" : "M"}${(L + i * bw + bw / 2).toFixed(1)},${y(v).toFixed(1)}`).join("")}" fill="none" stroke="var(--naive)" stroke-width="1.6" stroke-dasharray="4 3"/>`;
   E().events.forEach((ev) => {
     if (ev.week < 2 || ev.severity === "info") return;
     const x = L + (ev.week - 1) * bw + bw / 2, big = ev.kind === "chokepoint";
     s += `<circle cx="${x}" cy="${big ? 8 : 14}" r="${big ? 5 : 3}" fill="${ev.severity === "bad" ? "var(--bad)" : "var(--warn)"}" style="pointer-events:none"/>`;
   });
-  s += `<text class="ax" x="${L + 2}" y="11" style="font-size:10px">витрати по тижнях (штрих: naive) · крапки: події, великі: протока · смужки внизу: проблеми</text></svg>`;
+  s += `<text class="ax" x="${L + 2}" y="11" style="font-size:10px">витрати по тижнях${E().naive.J == null ? "" : " (штрих: naive)"} · крапки: події, великі: протока · смужки внизу: проблеми</text></svg>`;
   $("#timeline").innerHTML = s;
   $("#tlLegend").innerHTML = PORDER.map((k, r) => `<span><i style="background:${PCOL[k]}"></i>${PNAME[k]}</span>`).join("");
 }
@@ -784,7 +812,7 @@ function tabObs() {
   const sec1 = sec("Мережа цього тижня", "потужності, ціни, заборони, мита та протока", ["graph_now.*", "action_mask"], `<p class="hint">Це «карта доріг на сьогодні». Агент бачить, які маршрути працюють і що вони коштують. Рядки з жовтою або червоною смугою відхиляються від норми.</p><div class="kpis">${chk}</div>${ce.length ? `<p class="note bad">${ce.join("; ")}</p>` : ""}${edgesTbl}`);
   const stockRows = N.stockSlots.map((s, j) => { const mx = Math.max(1, ...a.stock.map((r) => r[j] || 0)); return `<tr class="click" data-node="${s.node}"><td>${esc(node(s.node).short)}</td><td><span class="dot" style="background:${KCOL[s.k]}"></span>${esc(kName(s.k))}</td><td>${bar(a.stock[w][j], mx, KCOL[s.k])}</td><td class="num">${num(a.stock[w][j])}</td><td>${spark(a.stock.map((r) => r[j]), { w: 120, h: 22, cur: w, color: KCOL[s.k] })}</td></tr>`; }).join("");
   const transit = a.pipeline[w].map((r) => `<tr class="click" data-edge="${r[0]}"><td>${esc(edge(r[0]).label)}</td><td>${esc(kName(r[1]))}</td><td class="num">${num(r[2])}</td><td class="num">тиждень ${r[3]}${r[3] > w + 1 ? ` <span class="na">(за ${r[3] - w - 1})</span>` : ""}</td></tr>`).join("");
-  const queue = a.queue[w].map((r) => `<tr><td>${esc(node(r[1]).short)}</td><td>${esc(kName(r[2]))}</td><td class="num">${num(r[3])}</td><td class="num">${r[6]}</td><td>${r[4] != null && N.slots.find((s) => s.lane === r[4]) ? esc(N.slots.find((s) => s.lane === r[4]).route) : "—"}</td></tr>`).join("");
+  const queue = a.queue[w].map((r) => `<tr><td>${esc(node(r[1]).short)}</td><td>${esc(kName(r[2]))}</td><td class="num">${num(r[3])}</td><td class="num">${r[6] ?? "—"}</td><td>${r[4] != null && N.slots.find((s) => s.lane === r[4]) ? esc(N.slots.find((s) => s.lane === r[4]).route) : "—"}</td></tr>`).join("");
   const wip = a.wip[w].map((r) => `<tr class="click" data-node="${r[0]}"><td>${esc(node(r[0]).short)}</td><td>${esc(kName(r[1]))}</td><td class="num">${num(r[2])}</td><td class="num">${r[3]}</td></tr>`).join("");
   const sec2 = sec("Запаси та вантаж", "що лежить на складах і що їде", ["stock.qty", "pipeline.*", "queue_lots.*", "wip.*"],
     `<p class="hint">Агент бачить власні запаси, вантаж у дорозі, партії в черзі біля протоки та напівфабрикати на виробництві. Усе це стан на кінець минулого тижня.</p>
@@ -903,6 +931,12 @@ function cumChart(w) {
 }
 function tabRes() {
   const a = A(), w = S.w, naiveJ = E().naive.J;
+  if (naiveJ == null) {
+    const totals = N.costs.map((c, i) => sum(a.costs.slice(0, a.completedWeeks).map((r) => r[i])));
+    return `<p class="note">LIVE: готово ${a.completedWeeks} з ${T} тижнів. Витрати наразі є проміжними; підсумкова вартість і порівняння з naive з’являться після завершення епізоду.</p>
+      <div class="kpis"><div class="kpi"><div class="l">Накопичено витрат</div><div class="v">${usd(sum(totals))}</div></div><div class="kpi"><div class="l">Недопоставлено</div><div class="v">${num(sum(a.lost.slice(0, a.completedWeeks).map((r) => r[0])))}</div></div></div>
+      <div class="tbl"><table><tr><th>Компонент витрат</th><th class="num">Цього тижня</th><th class="num">Від початку</th></tr>${N.costs.map((c, i) => `<tr><td>${esc(c.label)}</td><td class="num">${usd(a.costs[w][i])}</td><td class="num">${usd(totals[i])}</td></tr>`).join("")}</table></div>`;
+  }
   const cmp = AGENTS.map((k) => { const g = E().agents[k], saved = naiveJ - g.J; return `<tr class="click ${k === S.agent ? "sel" : ""}" data-pick="${esc(k)}"><td><span class="dot" style="background:${agentColor(k)}"></span>${esc(g.label)}</td><td class="num">${usd(g.J)}</td><td class="num">${saved >= 0 ? `<span class="pill ok">дешевше на ${usd(saved)} (${pct(saved / naiveJ, 1)})</span>` : `<span class="pill bad">дорожче на ${usd(-saved)} (${pct(-saved / naiveJ, 1)})</span>`}</td></tr>`; }).join("");
   const tw = a.costs[w], nw = E().naive.costs[w];
   const rows = N.costs.map((c, i) => `<tr><td><span class="dot" style="background:${CCOL[i]}"></span>${esc(c.label)}<div class="sm">${esc(c.hint)}</div></td><td class="num">${usd(tw[i])}</td><td class="num">${usd(nw[i])}</td></tr>`).join("");
@@ -1005,22 +1039,23 @@ const TABS = { obs: tabObs, act: tabAct, res: tabRes, ev: tabEv, gl: tabGl };
 /* render */
 function renderAll(keepScroll = true) {
   const sy = window.scrollY;
-  syncControls(); drawTimeline(); drawMap(); drawInspector(); drawDiag();
+  syncControls(); drawOverview(); drawTimeline(); drawMap(); drawInspector(); drawDiag();
   const open = [...document.querySelectorAll("#tabBody details.sec")].map((d) => d.open);
   $("#tabBody").innerHTML = TABS[S.tab]();
   if (open.length) document.querySelectorAll("#tabBody details.sec").forEach((d, i) => { if (open[i] != null && S.tabKept === S.tab) d.open = open[i]; });
   S.tabKept = S.tab;
   if (keepScroll) window.scrollTo(0, sy);
 }
-function setWeek(w) { S.w = Math.max(0, Math.min(T - 1, w)); renderAll(); }
+function setWeek(w) { S.w = Math.max(0, Math.min(D.live ? A().completedWeeks - 1 : T - 1, w)); renderAll(); }
 function stop() { if (S.play) { clearInterval(S.play); S.play = null; } }
 
 document.addEventListener("click", (ev) => {
-  const t = ev.target.closest("[data-edge],[data-node],[data-week],[data-agent],[data-tab],[data-pick],[data-clear],[data-filt]");
+  const t = ev.target.closest("[data-edge],[data-node],[data-week],[data-agent],[data-tab],[data-pick],[data-clear],[data-filt],[data-episode]");
   if (!t) return;
   if (t.dataset.edge != null) { S.sel = { t: "edge", i: +t.dataset.edge }; }
   else if (t.dataset.node != null) { S.sel = { t: "node", i: +t.dataset.node }; }
   else if (t.dataset.week != null) { S.w = +t.dataset.week; }
+  else if (t.dataset.episode != null) { S.ep = +t.dataset.episode; S.w = defaultWeek(); S.sel = defaultSel(); }
   else if (t.dataset.agent) { S.agent = t.dataset.agent; }
   else if (t.dataset.pick) { S.agent = t.dataset.pick; }
   else if (t.dataset.tab) { S.tab = t.dataset.tab; }
@@ -1033,6 +1068,7 @@ document.addEventListener("change", (ev) => {
   if (id === "chkDev") S.onlyDev = ev.target.checked;
   else if (id === "chkCmp") S.compare = ev.target.checked;
   else if (id === "selLabel") S.label = ev.target.value;
+  else if (id === "selCompare") S.compareAgent = ev.target.value;
   else if (id === "selEp") { S.ep = +ev.target.value; S.w = defaultWeek(); S.sel = defaultSel(); }
   else return;
   renderAll();
@@ -1059,8 +1095,18 @@ function defaultWeek() { const c = firstClosure(A()); return c >= 0 ? c : 0; }
 function defaultSel() { return N.chokepoints.length ? { t: "node", i: N.chokepoints[0] } : null; }
 
 buildControls();
-S.w = defaultWeek();
+S.w = D.live ? A().completedWeeks - 1 : defaultWeek();
 S.sel = defaultSel();
 $("#foot").textContent = "Усі дані записано з гри агентів на епізодах розробницької вибірки. Клавіші ← і → перемикають тижні.";
 renderAll(false);
+if (D.live && !D.finished) {
+  setInterval(async () => {
+    try {
+      const response = await fetch(`live.json?t=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const state = await response.json();
+      if (state.weeks !== A().completedWeeks || state.finished !== D.finished) location.reload();
+    } catch (_) { /* The server may have been stopped; keep the last snapshot visible. */ }
+  }, 1000);
+}
 </script>
